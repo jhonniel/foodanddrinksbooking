@@ -50,7 +50,14 @@ export async function POST(request: Request) {
     });
 
     if (error || !data.user) {
-      return jsonError(error?.message ?? "Registration failed.");
+      const msg = error?.message ?? "Registration failed.";
+      if (/database error/i.test(msg)) {
+        return jsonError(
+          "Registration failed: database trigger needs a fix. Run supabase/migrations/006_fix_signup_and_images.sql in the Supabase SQL Editor, then try again.",
+          500
+        );
+      }
+      return jsonError(msg);
     }
 
     let role: UserRole = "CUSTOMER";
