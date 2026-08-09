@@ -11,10 +11,6 @@ import { Logo } from "@/components/shared/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  AuthDivider,
-  GoogleSignInButton,
-} from "@/components/auth/GoogleSignInButton";
 import { loginSchema, type LoginInput } from "@/schemas";
 import { useAuthStore } from "@/stores/auth";
 import { homePathForRole } from "@/lib/auth/config";
@@ -79,11 +75,6 @@ function LoginFormInner() {
         </div>
 
         <div className="rounded-2xl bg-white p-6 shadow-card">
-          <Suspense fallback={null}>
-            <GoogleSignInButton label="Continue with Google" />
-          </Suspense>
-          <AuthDivider />
-
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

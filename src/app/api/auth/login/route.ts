@@ -51,6 +51,9 @@ export async function POST(request: Request) {
       .eq("id", data.user.id)
       .maybeSingle();
 
+    const metaRole = (data.user.app_metadata?.role ||
+      data.user.user_metadata?.role) as Profile["role"] | undefined;
+
     const profile = (profileRow as Profile | null) ?? {
       id: data.user.id,
       email: data.user.email ?? email,
@@ -59,7 +62,7 @@ export async function POST(request: Request) {
         email.split("@")[0],
       phone: (data.user.user_metadata?.phone as string) || null,
       avatar_url: null,
-      role: "CUSTOMER" as const,
+      role: metaRole || "CUSTOMER",
       is_active: true,
       points_balance: 0,
       lifetime_points: 0,
@@ -68,15 +71,13 @@ export async function POST(request: Request) {
     };
 
     // Keep app_metadata.role in sync for middleware fallbacks
-    if (profileRow?.role) {
-      const metaRole = data.user.app_metadata?.role;
-      if (metaRole !== profileRow.role) {
-        const admin = await createServerClient();
-        if (admin) {
-          await admin.auth.admin.updateUserById(data.user.id, {
-            app_metadata: { role: profileRow.role },
-          });
-        }
+    const canonicalRole = (profileRow as Profile | null)?.role ?? profile.role;
+    if (data.user.app_metadata?.role !== canonicalRole) {
+      const admin = await createServerClient();
+      if (admin) {
+        await admin.auth.admin.updateUserById(data.user.id, {
+          app_metadata: { role: canonicalRole },
+        });
       }
     }
 

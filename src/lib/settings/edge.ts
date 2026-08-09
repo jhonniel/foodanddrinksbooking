@@ -1,17 +1,19 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
-import { isSupabaseConfigured } from "@/lib/auth/config";
+import {
+  getSupabaseAnonKey,
+  getSupabaseUrl,
+  isSupabaseConfigured,
+} from "@/lib/auth/config";
 
 /** Edge-safe: read maintenance flag from Supabase (public SELECT on app_settings). */
 export async function readMaintenanceModeFromSupabase(): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
+  const supabase = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
   const { data } = await supabase
     .from("app_settings")
@@ -31,20 +33,16 @@ export async function readProfileRoleFromRequest(
 ): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Cookie refresh handled by auth routes / layout.
-        },
+  const supabase = createServerClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
       },
-    }
-  );
+      setAll() {
+        // Cookie refresh handled by auth routes / layout.
+      },
+    },
+  });
 
   const {
     data: { user },

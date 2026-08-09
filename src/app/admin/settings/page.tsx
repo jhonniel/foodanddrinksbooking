@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Construction, Gift, ShieldCheck, Store } from "lucide-react";
+import { Construction, Database, Gift, ShieldCheck, Store } from "lucide-react";
 import {
   STORE_LOCATION,
   LOYALTY_SETTINGS,
@@ -36,17 +36,35 @@ export default function AdminSettingsPage() {
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
   const [maintenanceSaving, setMaintenanceSaving] = useState(false);
+  const [supabaseStatus, setSupabaseStatus] = useState<{
+    configured: boolean;
+    auth: boolean;
+    database: boolean;
+    storage: boolean;
+    missing: string[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/settings");
-        const json = (await res.json()) as {
+        const [settingsRes, statusRes] = await Promise.all([
+          fetch("/api/settings", { credentials: "include" }),
+          fetch("/api/supabase/status", { credentials: "include" }),
+        ]);
+        const json = (await settingsRes.json()) as {
           settings?: { maintenance_mode?: boolean };
+        };
+        const status = (await statusRes.json()) as {
+          configured: boolean;
+          auth: boolean;
+          database: boolean;
+          storage: boolean;
+          missing: string[];
         };
         if (!cancelled) {
           setMaintenanceMode(Boolean(json.settings?.maintenance_mode));
+          setSupabaseStatus(status);
         }
       } catch {
         /* ignore */
@@ -106,6 +124,62 @@ export default function AdminSettingsPage() {
       </div>
 
       <div className="mx-auto max-w-2xl space-y-6">
+        <section className="rounded-2xl bg-white p-6 shadow-card">
+          <div className="mb-4 flex items-center gap-2">
+            <Database className="h-5 w-5 text-green" />
+            <h2 className="text-lg font-semibold text-navy">Supabase</h2>
+          </div>
+          {!supabaseStatus ? (
+            <p className="text-sm text-muted-foreground">Checking connection…</p>
+          ) : (
+            <div className="space-y-3">
+              <ul className="space-y-2 text-sm">
+                {(
+                  [
+                    ["Auth / login", supabaseStatus.configured && supabaseStatus.auth],
+                    ["Database / catalog", supabaseStatus.configured && supabaseStatus.database],
+                    ["Storage / images", supabaseStatus.configured && supabaseStatus.storage],
+                  ] as const
+                ).map(([label, ok]) => (
+                  <li
+                    key={label}
+                    className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2"
+                  >
+                    <span>{label}</span>
+                    <span
+                      className={
+                        ok
+                          ? "font-medium text-green"
+                          : "font-medium text-amber-700"
+                      }
+                    >
+                      {ok ? "Connected" : "Not ready"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {supabaseStatus.missing.length > 0 && (
+                <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <p className="font-medium">Still needed:</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    {supabaseStatus.missing.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {supabaseStatus.configured &&
+                supabaseStatus.auth &&
+                supabaseStatus.database &&
+                supabaseStatus.storage && (
+                  <p className="text-xs text-muted-foreground">
+                    Login, catalog, and product image uploads use this project.
+                  </p>
+                )}
+            </div>
+          )}
+        </section>
+
         <section className="rounded-2xl bg-white p-6 shadow-card">
           <div className="mb-4 flex items-center gap-2">
             <Construction className="h-5 w-5 text-amber-600" />

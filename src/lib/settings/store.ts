@@ -1,6 +1,11 @@
 import "server-only";
 
-import { isSupabaseConfigured } from "@/lib/auth/config";
+import {
+  getSupabaseAnonKey,
+  getSupabaseServiceRoleKey,
+  getSupabaseUrl,
+  isSupabaseConfigured,
+} from "@/lib/auth/config";
 import { createClient } from "@supabase/supabase-js";
 import type { AppSettings } from "./types";
 
@@ -14,10 +19,8 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 function createServiceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const url = getSupabaseUrl();
+  const key = getSupabaseServiceRoleKey() || getSupabaseAnonKey();
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

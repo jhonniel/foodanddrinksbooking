@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useAuthStore } from "@/stores/auth";
 import { useDataStore } from "@/stores/data";
+import { loadCatalog } from "@/services/catalogService";
 
 /**
  * Loads the real session from the server on mount.
@@ -13,12 +14,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const initializing = useAuthStore((s) => s.initializing);
   const updateCustomer = useDataStore((s) => s.updateCustomer);
+  const applyCatalog = useDataStore((s) => s.applyCatalog);
 
   useEffect(() => {
     void initialize();
     // Sync maintenance cookie for Edge middleware (local mode)
     void fetch("/api/settings", { credentials: "include", cache: "no-store" });
-  }, [initialize]);
+    void (async () => {
+      const catalog = await loadCatalog();
+      if (
+        catalog.configured &&
+        catalog.categories.length > 0 &&
+        catalog.products.length > 0
+      ) {
+        applyCatalog({
+          categories: catalog.categories,
+          products: catalog.products,
+          inventory: catalog.inventory,
+        });
+      }
+    })();
+  }, [initialize, applyCatalog]);
 
   useEffect(() => {
     if (initializing || !user) return;

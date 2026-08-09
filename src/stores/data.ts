@@ -243,6 +243,12 @@ interface DataState {
   deductedOrderIds: string[];
 
   setHydrated: (v: boolean) => void;
+  /** Replace catalog slices when Supabase is the source of truth */
+  applyCatalog: (input: {
+    categories: Category[];
+    products: Product[];
+    inventory: InventoryItem[];
+  }) => void;
 
   addProduct: (input: CreateProductInput) => Product;
   updateProduct: (id: string, updates: Partial<Product>) => void;
@@ -349,13 +355,26 @@ export const useDataStore = create<DataState>()(
 
       setHydrated: (v) => set({ hydrated: v }),
 
+      applyCatalog: ({ categories, products, inventory }) =>
+        set({
+          categories,
+          products,
+          inventory,
+        }),
+
       addProduct: (input) => {
-        const id = `prod-${Date.now()}`;
+        const id =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `prod-${Date.now()}`;
         const now = new Date().toISOString();
         const recipes: ProductRecipe[] = (input.recipes ?? [])
           .filter((r) => r.inventoryItemId && r.quantityRequired > 0)
-          .map((r, i) => ({
-            id: `recipe-${id}-${i}`,
+          .map((r) => ({
+            id:
+              typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `recipe-${id}-${Math.random().toString(36).slice(2, 8)}`,
             product_id: id,
             inventory_item_id: r.inventoryItemId,
             quantity_required: r.quantityRequired,
@@ -406,8 +425,11 @@ export const useDataStore = create<DataState>()(
                   ...p,
                   recipes: recipes
                     .filter((r) => r.inventoryItemId && r.quantityRequired > 0)
-                    .map((r, i) => ({
-                      id: `recipe-${productId}-${i}-${Date.now()}`,
+                    .map((r) => ({
+                      id:
+                        typeof crypto !== "undefined" && "randomUUID" in crypto
+                          ? crypto.randomUUID()
+                          : `recipe-${productId}-${Date.now()}`,
                       product_id: productId,
                       inventory_item_id: r.inventoryItemId,
                       quantity_required: r.quantityRequired,

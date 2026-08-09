@@ -77,8 +77,28 @@ async function getSupabaseProfile(): Promise<Profile | null> {
     }
   }
 
-  if (!data) return null;
-  return data as Profile;
+  if (data) return data as Profile;
+
+  // Fallback when profiles table is missing or row not yet created
+  const role = (user.app_metadata?.role ||
+    user.user_metadata?.role ||
+    "CUSTOMER") as UserRole;
+
+  return {
+    id: user.id,
+    email: user.email ?? "",
+    full_name:
+      (user.user_metadata?.full_name as string) ||
+      (user.email ?? "user").split("@")[0],
+    phone: (user.user_metadata?.phone as string) || null,
+    avatar_url: null,
+    role,
+    is_active: true,
+    points_balance: 0,
+    lifetime_points: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
 }
 
 export function assertRole(

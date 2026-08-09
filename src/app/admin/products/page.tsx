@@ -5,6 +5,11 @@ import Image from "next/image";
 import { Plus, Search, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
+import {
+  removeProductRemote,
+  syncProduct,
+  uploadProductImage,
+} from "@/services/catalogService";
 import { formatCurrency } from "@/lib/utils/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +43,12 @@ function emptyRecipe(): RecipeDraft {
   return { inventoryItemId: "", quantityRequired: "" };
 }
 
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    id
+  );
+}
+
 export default function AdminProductsPage() {
   const products = useDataStore((s) => s.products);
   const categories = useDataStore((s) => s.categories);
@@ -57,6 +68,9 @@ export default function AdminProductsPage() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
   const [isFeatured, setIsFeatured] = useState(false);
   const [isBestSeller, setIsBestSeller] = useState(false);
   const [recipes, setRecipes] = useState<RecipeDraft[]>([emptyRecipe()]);
@@ -90,6 +104,8 @@ export default function AdminProductsPage() {
     setDescription("");
     setPrice("");
     setCategoryId(activeCategories[0]?.id ?? "");
+    setImageUrl("");
+    setImageFile(null);
     setIsFeatured(false);
     setIsBestSeller(false);
     setRecipes([emptyRecipe()]);
@@ -110,6 +126,8 @@ export default function AdminProductsPage() {
     setDescription(product.description ?? "");
     setPrice(String(product.base_price));
     setCategoryId(product.category_id);
+    setImageUrl(product.image_url ?? "");
+    setImageFile(null);
     setIsFeatured(product.is_featured);
     setIsBestSeller(product.is_best_seller);
     setRecipes(
@@ -123,10 +141,7 @@ export default function AdminProductsPage() {
     setDialogOpen(true);
   };
 
-  const updateRecipe = (
-    index: number,
-    patch: Partial<RecipeDraft>
-  ) => {
+  const updateRecipe = (index: number, patch: Partial<RecipeDraft>) => {
     setRecipes((rows) =>
       rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
     );
@@ -153,7 +168,7 @@ export default function AdminProductsPage() {
     return parsed;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const trimmedName = name.trim();
     const parsedPrice = parseFloat(price);
     const parsedRecipes = parseRecipes();
@@ -176,54 +191,108 @@ export default function AdminProductsPage() {
       return;
     }
 
-    if (editProduct) {
-      updateProduct(editProduct.id, {
+    setSaving(true);
+    try {
+      let nextImageUrl = imageUrl.trim() || undefined;
+
+      if (editProduct) {
+        if (imageFile) {
+          const uploaded = await uploadProductImage(imageFile, editProduct.id);
+          if ("error" in uploaded) {
+            toast.error(uploaded.error);
+            return;
+          }
+          nextImageUrl = uploaded.publicUrl;
+        }
+
+        updateProduct(editProduct.id, {
+          name: trimmedName,
+          description: description.trim() || null,
+          base_price: parsedPrice,
+          category_id: categoryId,
+          is_featured: isFeatured,
+          is_best_seller: isBestSeller,
+          ...(nextImageUrl ? { image_url: nextImageUrl } : {}),
+        });
+        setProductRecipes(editProduct.id, parsedRecipes);
+
+        const latest = useDataStore
+          .getState()
+          .products.find((p) => p.id === editProduct.id);
+        if (latest && isUuid(latest.id) && isUuid(latest.category_id)) {
+          const sync = await syncProduct(latest);
+          if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
+        }
+
+        toast.success(`"${trimmedName}" updated.`);
+        setDialogOpen(false);
+        resetForm();
+        return;
+      }
+
+      const created = addProduct({
         name: trimmedName,
-        description: description.trim() || null,
-        base_price: parsedPrice,
-        category_id: categoryId,
-        is_featured: isFeatured,
-        is_best_seller: isBestSeller,
+        description: description.trim() || undefined,
+        categoryId,
+        basePrice: parsedPrice,
+        imageUrl: nextImageUrl,
+        isFeatured,
+        isBestSeller,
+        recipes: parsedRecipes,
       });
-      setProductRecipes(editProduct.id, parsedRecipes);
-      toast.success(`"${trimmedName}" updated.`);
+
+      if (imageFile) {
+        const uploaded = await uploadProductImage(imageFile, created.id);
+        if ("error" in uploaded) {
+          toast.error(uploaded.error);
+        } else {
+          updateProduct(created.id, { image_url: uploaded.publicUrl });
+        }
+      }
+
+      const latest = useDataStore
+        .getState()
+        .products.find((p) => p.id === created.id);
+      if (latest && isUuid(latest.id) && isUuid(latest.category_id)) {
+        const sync = await syncProduct(latest);
+        if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
+      }
+
+      toast.success(`"${trimmedName}" added with ingredients.`);
       setDialogOpen(false);
       resetForm();
-      return;
+    } finally {
+      setSaving(false);
     }
-
-    addProduct({
-      name: trimmedName,
-      description: description.trim() || undefined,
-      categoryId,
-      basePrice: parsedPrice,
-      isFeatured,
-      isBestSeller,
-      recipes: parsedRecipes,
-    });
-
-    toast.success(`"${trimmedName}" added with ingredients.`);
-    setDialogOpen(false);
-    resetForm();
   };
 
-  const handleToggleAvailability = (id: string, productName: string) => {
+  const handleToggleAvailability = async (id: string, productName: string) => {
     toggleProductAvailability(id);
-    const product = products.find((p) => p.id === id);
-    const nowAvailable = product ? !product.is_available : true;
+    const product = useDataStore.getState().products.find((p) => p.id === id);
+    const nowAvailable = product?.is_available ?? true;
     toast.success(
       `"${productName}" is now ${nowAvailable ? "available" : "unavailable"}.`
     );
+    if (product && isUuid(product.id)) {
+      void syncProduct(product);
+    }
   };
 
-  const handleDelete = (id: string, productName: string) => {
+  const handleDelete = async (id: string, productName: string) => {
     if (!window.confirm(`Delete "${productName}"? This cannot be undone.`))
       return;
     deleteProduct(id);
+    if (isUuid(id)) {
+      const remote = await removeProductRemote(id);
+      if (!remote.ok) toast.error(remote.error ?? "Removed locally only.");
+    }
     toast.success(`"${productName}" removed from the menu.`);
   };
 
   const isEditMode = Boolean(editProduct);
+  const previewUrl = imageFile
+    ? URL.createObjectURL(imageFile)
+    : imageUrl || null;
 
   return (
     <div className="p-4 lg:p-8">
@@ -301,6 +370,38 @@ export default function AdminProductsPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label>Product image</Label>
+                {previewUrl && (
+                  <div className="relative aspect-video overflow-hidden rounded-xl bg-light-blue">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl}
+                      alt="Preview"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                )}
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setImageFile(file);
+                  }}
+                />
+                <Input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Or paste image URL"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Uploads use Supabase Storage (`islandcoolersimg`) when
+                  configured.
+                </p>
+              </div>
+
               <div className="flex flex-wrap gap-6">
                 <div className="flex items-center gap-2">
                   <Checkbox
@@ -406,9 +507,14 @@ export default function AdminProductsPage() {
 
               <Button
                 className="w-full bg-green hover:bg-green/90"
-                onClick={handleSave}
+                onClick={() => void handleSave()}
+                disabled={saving}
               >
-                {isEditMode ? "Save Changes" : "Save Product"}
+                {saving
+                  ? "Saving…"
+                  : isEditMode
+                    ? "Save Changes"
+                    : "Save Product"}
               </Button>
             </div>
           </DialogContent>
@@ -446,61 +552,62 @@ export default function AdminProductsPage() {
                     sizes="25vw"
                   />
                 )}
-                <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+              </div>
+              <div className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold text-navy">{product.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {getCategoryName(product.category_id)}
+                    </p>
+                  </div>
+                  <p className="font-semibold text-green">
+                    {formatCurrency(product.base_price)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1">
                   {product.is_featured && (
-                    <Badge className="bg-sky text-white">Featured</Badge>
+                    <Badge variant="secondary">Featured</Badge>
                   )}
                   {product.is_best_seller && (
-                    <Badge className="bg-green text-white">Best Seller</Badge>
+                    <Badge variant="secondary">Best seller</Badge>
                   )}
-                  {product.is_new && <Badge variant="secondary">New</Badge>}
+                  {!product.is_available && (
+                    <Badge variant="destructive">Unavailable</Badge>
+                  )}
                 </div>
-              </div>
-              <div className="p-4">
-                <h3 className="font-semibold text-navy">{product.name}</h3>
-                <p className="text-xs text-muted-foreground">
-                  {getCategoryName(product.category_id)} · {product.sku}
-                </p>
-                <p className="mt-1 text-lg font-bold text-green">
-                  {formatCurrency(product.base_price)}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {(product.recipes?.length ?? 0) > 0
-                    ? `${product.recipes!.length} ingredient${
-                        product.recipes!.length === 1 ? "" : "s"
-                      }`
-                    : "No ingredients set"}
-                </p>
-                <div className="mt-3 flex items-center justify-between">
-                  <Label htmlFor={`avail-${product.id}`} className="text-sm">
-                    Available
-                  </Label>
-                  <Switch
-                    id={`avail-${product.id}`}
-                    checked={product.is_available}
-                    onCheckedChange={() =>
-                      handleToggleAvailability(product.id, product.name)
-                    }
-                  />
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={product.is_available}
+                      onCheckedChange={() =>
+                        void handleToggleAvailability(product.id, product.name)
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Available
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openEditProduct(product)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive"
+                      onClick={() =>
+                        void handleDelete(product.id, product.name)
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3 w-full"
-                  onClick={() => openEditProduct(product)}
-                >
-                  <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 w-full text-destructive hover:bg-red-50 hover:text-destructive"
-                  onClick={() => handleDelete(product.id, product.name)}
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  Delete
-                </Button>
               </div>
             </div>
           ))}

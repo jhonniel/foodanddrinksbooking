@@ -1,7 +1,6 @@
 import type { Profile, UserRole } from "@/types";
 
 export const SESSION_COOKIE = "ic_session";
-export const GOOGLE_OAUTH_STATE_COOKIE = "ic_google_oauth";
 export const MAINTENANCE_COOKIE = "ic_maintenance";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 14; // 14 days
 
@@ -12,26 +11,45 @@ export function getAppUrl(): string {
   );
 }
 
-export function isSupabaseConfigured(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !key) return false;
-  if (url.includes("your-project")) return false;
-  if (key.includes("your-anon") || key.includes("your-")) return false;
-  return true;
+/** Anon / publishable key (new Supabase dashboard naming). */
+export function getSupabaseAnonKey(): string {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+    ""
+  );
 }
 
-export function isGoogleAuthConfigured(): boolean {
-  const hasDirectGoogle = Boolean(
-    process.env.GOOGLE_CLIENT_ID?.trim() &&
-      process.env.GOOGLE_CLIENT_SECRET?.trim()
-  );
-  if (hasDirectGoogle) return true;
-  // Supabase Google: enable in dashboard, then set this flag
+export function getSupabaseUrl(): string {
+  return process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || "";
+}
+
+export function getSupabaseServiceRoleKey(): string {
   return (
-    isSupabaseConfigured() &&
-    process.env.NEXT_PUBLIC_GOOGLE_AUTH === "true"
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
+    ""
   );
+}
+
+export function isSupabaseConfigured(): boolean {
+  const url = getSupabaseUrl();
+  const key = getSupabaseAnonKey();
+  if (!url || !key) return false;
+  const urlLower = url.toLowerCase();
+  const keyLower = key.toLowerCase();
+  if (urlLower.includes("your_project") || urlLower.includes("your-project")) {
+    return false;
+  }
+  if (
+    keyLower.includes("your-anon") ||
+    keyLower.includes("your-service") ||
+    keyLower === "your-anon-key" ||
+    keyLower.includes("your_project")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Demo mode is disabled for production-ready accounts. */
@@ -47,7 +65,7 @@ export function requiresSupabaseOnVercel(): boolean {
 export function getSessionSecret(): string {
   return (
     process.env.AUTH_SESSION_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    getSupabaseServiceRoleKey() ||
     "island-coolers-dev-session-secret-change-me"
   );
 }

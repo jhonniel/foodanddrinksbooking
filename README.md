@@ -32,9 +32,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 1. **Email signup** — `/register` (name, email, optional phone, password)
 2. **Email login** — `/login`
-3. **Google** — set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env.local`
-   - Redirect URI: `http://localhost:3000/api/auth/google/callback`
-4. First account (email or Google) becomes **Super Admin**
+3. First account becomes **Super Admin**
 
 Passwords are hashed (scrypt). Sessions use httpOnly signed cookies.  
 Local accounts live in `.data/accounts.json` (gitignored).
@@ -57,13 +55,18 @@ npm run seed:users
 
 ### Connect Supabase
 
-1. Create a Supabase project
-2. Run migrations in `supabase/migrations/` (SQL editor or CLI), in order:
+Powers **login**, **Postgres catalog**, and **image storage** (product photos, avatars, delivery proofs).
+
+1. Create a project at [supabase.com](https://supabase.com)
+2. **Project Settings → API** — copy Project URL, `anon` key, and `service_role` key
+3. Run SQL in the SQL editor (or CLI), in order:
    - `001_initial_schema.sql` — schema, RLS, triggers
    - `002_seed_data.sql` — categories, products, inventory, rewards
    - `003_harden_auth_roles.sql` — force CUSTOMER on signup; admin-only role changes
    - `004_maintenance_and_role_fix.sql` — maintenance setting + service-role role updates
-3. Set env vars (local `.env.local` and Vercel project settings):
+   - `005_storage_buckets.sql` — `product-images`, `avatars`, `delivery-proofs` + Unsplash image URLs
+4. Auth → Providers → Email enabled
+5. Set env vars in `.env.local` and Vercel:
 
 ```env
 NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
@@ -73,6 +76,9 @@ SUPABASE_SERVICE_ROLE_KEY=...
 AUTH_SESSION_SECRET=long-random-secret
 NEXT_PUBLIC_DEMO_MODE=false
 ```
+
+6. Restart `npm run dev`. Check **Admin → Settings → Supabase** for Auth / Database / Storage status.
+7. Register the first user (becomes Super Admin), or create users in Supabase Auth and set `profiles.role`.
 
 ### Deploy on Vercel
 

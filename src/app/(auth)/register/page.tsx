@@ -11,10 +11,6 @@ import { Logo } from "@/components/shared/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  AuthDivider,
-  GoogleSignInButton,
-} from "@/components/auth/GoogleSignInButton";
 import { registerSchema, type RegisterInput } from "@/schemas";
 import { useAuthStore } from "@/stores/auth";
 import { homePathForRole } from "@/lib/auth/config";
@@ -74,16 +70,11 @@ function RegisterForm() {
           <Logo href="/" size="lg" className="justify-center" />
           <h1 className="mt-6 text-2xl font-bold text-navy">Create account</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign up with Google or email to start ordering.
+            Sign up with email to start ordering.
           </p>
         </div>
 
         <div className="rounded-2xl bg-white p-6 shadow-card">
-          <Suspense fallback={null}>
-            <GoogleSignInButton label="Sign up with Google" />
-          </Suspense>
-          <AuthDivider text="or sign up with email" />
-
           <form
             onSubmit={handleSubmit(onSubmit)}
             className="space-y-4"

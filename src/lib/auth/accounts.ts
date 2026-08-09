@@ -148,7 +148,7 @@ export async function authenticateAccount(
   }
   if (!account.password_hash) {
     return {
-      error: "This account uses Google sign-in. Continue with Google instead.",
+      error: "This account has no password. Reset it from your admin or create a new email account.",
     };
   }
   if (!verifyPassword(password, account.password_hash)) {

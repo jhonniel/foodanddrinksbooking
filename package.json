@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint",
-    "seed:users": "node scripts/seed-users.mjs"
+    "seed:users": "node scripts/seed-users.mjs",
+    "seed:supabase": "node scripts/seed-supabase-users.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
