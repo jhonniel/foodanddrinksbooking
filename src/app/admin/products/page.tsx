@@ -397,8 +397,7 @@ export default function AdminProductsPage() {
                   placeholder="Or paste image URL"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Uploads use Supabase Storage (`islandcoolersimg`) when
-                  configured.
+                  Uploads save to S3 (`islandcoolersimg`).
                 </p>
               </div>
 

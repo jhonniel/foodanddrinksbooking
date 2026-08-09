@@ -55,41 +55,44 @@ npm run seed:users
 
 ### Connect Supabase
 
-Powers **login**, **Postgres catalog**, and **image storage** (product photos, avatars, delivery proofs).
+Powers **login**, **Postgres catalog**, and **S3 image uploads**.
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. **Project Settings → API** — copy Project URL, `anon` key, and `service_role` key
-3. Run SQL in the SQL editor (or CLI), in order:
-   - `001_initial_schema.sql` — schema, RLS, triggers
-   - `002_seed_data.sql` — categories, products, inventory, rewards
-   - `003_harden_auth_roles.sql` — force CUSTOMER on signup; admin-only role changes
-   - `004_maintenance_and_role_fix.sql` — maintenance setting + service-role role updates
-   - `005_storage_buckets.sql` — `product-images`, `avatars`, `delivery-proofs` + Unsplash image URLs
-4. Auth → Providers → Email enabled
-5. Set env vars in `.env.local` and Vercel:
+2. **Project Settings → API** — copy Project URL, publishable/`anon` key, and `service_role`/secret key
+3. Run `supabase/bootstrap.sql` (or migrations `001`–`004`) in the SQL editor
+4. **Storage → S3** — copy Access Key ID + Secret; note your bucket name (e.g. `islandcoolersimg`)
+5. Auth → Providers → Email enabled
+6. Set env vars in `.env.local` **and** Vercel → Project → Settings → Environment Variables (Production + Preview):
 
 ```env
 NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...   # or legacy anon JWT
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...                   # or sb_secret_...
 AUTH_SESSION_SECRET=long-random-secret
 NEXT_PUBLIC_DEMO_MODE=false
+
+# S3 image uploads (required on Vercel)
+S3_ENDPOINT=https://xxx.storage.supabase.co/storage/v1/s3
+S3_REGION=ap-southeast-1
+S3_BUCKET=islandcoolersimg
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
 ```
 
-6. Restart `npm run dev`. Check **Admin → Settings → Supabase** for Auth / Database / Storage status.
-7. Register the first user (becomes Super Admin), or create users in Supabase Auth and set `profiles.role`.
+7. Redeploy after saving env vars. Check **Admin → Settings → Supabase** for Auth / Database / Storage.
 
 ### Deploy on Vercel
 
-Local `.data/accounts.json` **does not work** on Vercel (ephemeral filesystem). You must configure Supabase as above.
+Local `.data/accounts.json` **does not work** on Vercel. Auth + DB + S3 uploads all use Supabase.
 
-1. Push the repo and import it in Vercel
-2. Add the env vars from the previous section
-3. Deploy
-4. Register the first user — they become **SUPER_ADMIN** automatically when no admins exist yet
+1. Push the repo and import it in Vercel (or connect the GitHub repo)
+2. Add **all** env vars above for Production and Preview
+3. Deploy (or Redeploy so new env vars apply)
+4. Seed users: `npm run seed:supabase` locally (uses service role against the same project)
 
-Without Supabase env vars, auth falls back to `.data/` which is only for local development.
+Without Supabase/S3 env vars on Vercel, login and image uploads will fail.
 ## Project structure
 
 ```

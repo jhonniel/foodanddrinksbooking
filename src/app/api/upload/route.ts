@@ -3,22 +3,14 @@ import {
   getSessionProfileFromCookies,
 } from "@/lib/auth/server";
 import { jsonError, jsonOk } from "@/lib/auth/http";
-import { isSupabaseConfigured } from "@/lib/auth/config";
-import { createServerClient } from "@/lib/supabase/server";
-import {
-  buildStoragePath,
-  publicObjectUrl,
-  PRODUCT_IMAGE_BUCKET,
-  type StorageBucket,
-} from "@/lib/supabase/storage";
 import { updateProductImageInSupabase } from "@/lib/supabase/catalog";
-
-const ALLOWED_BUCKETS: StorageBucket[] = [
-  "product-images",
-  "islandcoolersimg",
-  "avatars",
-  "delivery-proofs",
-];
+import {
+  buildImageObjectKey,
+  getSignedS3ObjectUrl,
+  isS3Configured,
+  kindFromBucketHint,
+  uploadImageToS3,
+} from "@/lib/storage/s3";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -27,9 +19,13 @@ export async function POST(request: Request) {
   if (!assertRole(profile, "authenticated")) {
     return jsonError("Unauthorized.", 401);
   }
-  if (!isSupabaseConfigured()) {
+
+  if (!isS3Configured()) {
+    const onVercel = Boolean(process.env.VERCEL);
     return jsonError(
-      "Supabase Storage is not configured. Set NEXT_PUBLIC_SUPABASE_URL and keys.",
+      onVercel
+        ? "S3 is not configured on Vercel. Add S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET, S3_ENDPOINT, S3_REGION in Project Settings → Environment Variables, then Redeploy."
+        : "S3 is not configured. Set S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, and S3_BUCKET.",
       503
     );
   }
@@ -38,12 +34,10 @@ export async function POST(request: Request) {
   if (!form) return jsonError("Invalid form data.");
 
   const file = form.get("file");
-  const bucketRaw = String(form.get("bucket") ?? PRODUCT_IMAGE_BUCKET);
-  const folder = String(form.get("folder") ?? profile.id).replace(
-    /[^a-zA-Z0-9_-]/g,
-    ""
-  );
+  const bucketHint = String(form.get("bucket") ?? "islandcoolersimg");
+  const folder = String(form.get("folder") ?? profile.id);
   const productId = form.get("productId");
+  const kind = kindFromBucketHint(bucketHint);
 
   if (!(file instanceof File)) {
     return jsonError("File is required.");
@@ -54,56 +48,55 @@ export async function POST(request: Request) {
   if (file.size > MAX_BYTES) {
     return jsonError("Image must be 5MB or smaller.");
   }
-  if (!ALLOWED_BUCKETS.includes(bucketRaw as StorageBucket)) {
-    return jsonError("Invalid storage bucket.");
-  }
 
-  const bucket = bucketRaw as StorageBucket;
-  const isProductBucket =
-    bucket === "product-images" || bucket === "islandcoolersimg";
-
-  if (isProductBucket && !assertRole(profile, "staff")) {
+  if (kind === "products" && !assertRole(profile, "staff")) {
     return jsonError("Staff only.", 403);
   }
-  if (bucket === "delivery-proofs" && !assertRole(profile, "driver") && !assertRole(profile, "staff")) {
+  if (
+    kind === "delivery-proofs" &&
+    !assertRole(profile, "driver") &&
+    !assertRole(profile, "staff")
+  ) {
     return jsonError("Forbidden.", 403);
   }
 
-  const client = await createServerClient();
-  if (!client) return jsonError("Supabase is not configured.", 503);
-
-  const path = buildStoragePath(folder || profile.id, file);
+  const key = buildImageObjectKey({
+    kind,
+    folder,
+    filename: file.name,
+    contentType: file.type || "image/jpeg",
+  });
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  const { error } = await client.storage.from(bucket).upload(path, buffer, {
-    contentType: file.type || "image/jpeg",
-    upsert: false,
-    cacheControl: "3600",
-  });
+  try {
+    const uploaded = await uploadImageToS3({
+      body: buffer,
+      contentType: file.type || "image/jpeg",
+      key,
+    });
 
-  if (error) {
-    return jsonError(error.message, 502);
-  }
-
-  let publicUrl = publicObjectUrl(bucket, path);
-
-  if (bucket === "delivery-proofs") {
-    const { data: signed, error: signError } = await client.storage
-      .from(bucket)
-      .createSignedUrl(path, 60 * 60 * 24 * 7);
-    if (signError || !signed?.signedUrl) {
-      return jsonError(signError?.message ?? "Could not sign URL.", 502);
+    let publicUrl = uploaded.publicUrl;
+    if (kind === "delivery-proofs") {
+      publicUrl = await getSignedS3ObjectUrl(key);
     }
-    publicUrl = signed.signedUrl;
-  }
 
-  if (
-    isProductBucket &&
-    typeof productId === "string" &&
-    /^[0-9a-f-]{36}$/i.test(productId)
-  ) {
-    await updateProductImageInSupabase(productId, publicUrl);
-  }
+    if (
+      kind === "products" &&
+      typeof productId === "string" &&
+      /^[0-9a-f-]{36}$/i.test(productId)
+    ) {
+      await updateProductImageInSupabase(productId, publicUrl);
+    }
 
-  return jsonOk({ path, publicUrl, bucket });
+    return jsonOk({
+      path: key,
+      publicUrl,
+      bucket: process.env.S3_BUCKET || "islandcoolersimg",
+      storage: "s3",
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "S3 upload failed.";
+    return jsonError(message, 502);
+  }
 }

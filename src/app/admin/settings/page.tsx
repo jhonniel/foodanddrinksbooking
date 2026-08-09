@@ -138,7 +138,7 @@ export default function AdminSettingsPage() {
                   [
                     ["Auth / login", supabaseStatus.configured && supabaseStatus.auth],
                     ["Database / catalog", supabaseStatus.configured && supabaseStatus.database],
-                    ["Storage / images", supabaseStatus.configured && supabaseStatus.storage],
+                    ["Storage / S3 images", supabaseStatus.storage],
                   ] as const
                 ).map(([label, ok]) => (
                   <li
@@ -173,7 +173,7 @@ export default function AdminSettingsPage() {
                 supabaseStatus.database &&
                 supabaseStatus.storage && (
                   <p className="text-xs text-muted-foreground">
-                    Login, catalog, and product image uploads use this project.
+                    Login, catalog, and S3 image uploads use this project.
                   </p>
                 )}
             </div>
