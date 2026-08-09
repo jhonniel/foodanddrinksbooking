@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return jsonError(parsed.error.errors[0]?.message ?? "Invalid input");
+    return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
   }
 
   if (requiresSupabaseOnVercel()) {
@@ -35,67 +35,105 @@ export async function POST(request: Request) {
   const { email, password, fullName, phone } = parsed.data;
 
   if (isSupabaseConfigured()) {
-    const supabase = await createBrowserLikeServerClient();
-    if (!supabase) return jsonError("Auth is not configured.", 500);
+    const adminClient = await createServerClient();
+    if (!adminClient) return jsonError("Auth is not configured.", 500);
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
+    // Create + auto-confirm so users can use the app without email verify
+    // (Supabase "Confirm email" otherwise returns no session → looks like signup failed on Vercel).
+    const { data: created, error: createError } =
+      await adminClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
           full_name: fullName,
           phone: phone ?? null,
         },
-      },
-    });
+        app_metadata: { role: "CUSTOMER" },
+      });
 
-    if (error || !data.user) {
-      const msg = error?.message ?? "Registration failed.";
+    if (createError || !created.user) {
+      const msg = createError?.message ?? "Registration failed.";
+      if (/already|registered|exists/i.test(msg)) {
+        return jsonError("An account with this email already exists. Please sign in.", 409);
+      }
       if (/database error/i.test(msg)) {
         return jsonError(
-          "Registration failed: database trigger needs a fix. Run supabase/migrations/006_fix_signup_and_images.sql in the Supabase SQL Editor, then try again.",
+          "Registration failed: run supabase/migrations/006_fix_signup_and_images.sql in the SQL Editor, then try again.",
           500
         );
       }
       return jsonError(msg);
     }
 
+    const userId = created.user.id;
+
+    // Ensure profile row (trigger usually creates it; upsert is a safety net)
+    await adminClient.from("profiles").upsert(
+      {
+        id: userId,
+        email,
+        full_name: fullName,
+        phone: phone ?? null,
+        role: "CUSTOMER",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+
     let role: UserRole = "CUSTOMER";
     let bootstrappedAdmin = false;
 
-    // First staff bootstrap when no admins exist yet (matches local .data behavior).
-    const adminClient = await createServerClient();
-    if (adminClient) {
-      const { count } = await adminClient
+    const { count } = await adminClient
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .in("role", ["ADMIN", "SUPER_ADMIN"]);
+
+    if ((count ?? 0) === 0) {
+      const { data: promoted } = await adminClient
         .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .in("role", ["ADMIN", "SUPER_ADMIN"]);
+        .update({
+          role: "SUPER_ADMIN",
+          full_name: fullName,
+          phone: phone ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId)
+        .select("*")
+        .maybeSingle();
 
-      if ((count ?? 0) === 0) {
-        const { data: promoted } = await adminClient
-          .from("profiles")
-          .update({
-            role: "SUPER_ADMIN",
-            full_name: fullName,
-            phone: phone ?? null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", data.user.id)
-          .select("*")
-          .maybeSingle();
+      if (promoted) {
+        role = "SUPER_ADMIN";
+        bootstrappedAdmin = true;
+        await adminClient.auth.admin.updateUserById(userId, {
+          app_metadata: { role: "SUPER_ADMIN" },
+        });
+      }
+    } else {
+      const { data: profileRow } = await adminClient
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profileRow?.role) role = profileRow.role as UserRole;
+    }
 
-        if (promoted) {
-          role = "SUPER_ADMIN";
-          bootstrappedAdmin = true;
-          await adminClient.auth.admin.updateUserById(data.user.id, {
-            app_metadata: { role: "SUPER_ADMIN" },
-          });
-        }
+    // Establish cookie session for middleware + /api/auth/me
+    const sessionClient = await createBrowserLikeServerClient();
+    if (sessionClient) {
+      const { error: signInError } = await sessionClient.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError) {
+        // Account exists; client can still land on login
+        console.error("[register] sign-in after create failed", signInError.message);
       }
     }
 
     const profile: Profile = {
-      id: data.user.id,
+      id: userId,
       email,
       full_name: fullName,
       phone: phone ?? null,
