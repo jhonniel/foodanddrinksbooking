@@ -43,6 +43,11 @@ export async function POST(request: Request) {
     if (error || !data) {
       return jsonError(error?.message ?? "Failed to update role.");
     }
+
+    await supabase.auth.admin.updateUserById(parsed.data.accountId, {
+      app_metadata: { role: parsed.data.role },
+    });
+
     return jsonOk({ profile: data });
   }
 

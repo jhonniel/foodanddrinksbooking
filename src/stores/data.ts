@@ -11,6 +11,8 @@ import type {
   Promotion,
   Driver,
   Profile,
+  Expense,
+  ExpenseCategory,
 } from "@/types";
 import {
   CATEGORIES,
@@ -218,6 +220,14 @@ export interface CreateCustomerInput {
   phone?: string;
 }
 
+export interface CreateExpenseInput {
+  title: string;
+  category: ExpenseCategory;
+  amount: number;
+  notes?: string;
+  incurredAt?: string;
+}
+
 interface DataState {
   hydrated: boolean;
   categories: Category[];
@@ -228,6 +238,7 @@ interface DataState {
   promotions: Promotion[];
   drivers: Driver[];
   customers: Profile[];
+  expenses: Expense[];
   /** Order ids that already had inventory deducted (idempotent) */
   deductedOrderIds: string[];
 
@@ -269,7 +280,52 @@ interface DataState {
   addCustomer: (input: CreateCustomerInput) => Profile;
   updateCustomer: (id: string, updates: Partial<Profile>) => void;
 
+  addExpense: (input: CreateExpenseInput) => Expense;
+  updateExpense: (id: string, updates: Partial<Expense>) => void;
+  deleteExpense: (id: string) => void;
+
   resetToSeed: () => void;
+}
+
+function seedExpenses(): Expense[] {
+  const now = new Date();
+  const iso = (daysAgo: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - daysAgo);
+    return d.toISOString();
+  };
+  return [
+    {
+      id: "exp-rent-1",
+      title: "Store rent",
+      category: "RENT",
+      amount: 18000,
+      notes: "Monthly lease",
+      incurred_at: iso(2),
+      created_at: iso(2),
+      updated_at: iso(2),
+    },
+    {
+      id: "exp-util-1",
+      title: "Electricity & water",
+      category: "UTILITIES",
+      amount: 4200,
+      notes: null,
+      incurred_at: iso(1),
+      created_at: iso(1),
+      updated_at: iso(1),
+    },
+    {
+      id: "exp-sup-1",
+      title: "Cups & packaging",
+      category: "SUPPLIES",
+      amount: 2500,
+      notes: "Restock packaging",
+      incurred_at: iso(0),
+      created_at: iso(0),
+      updated_at: iso(0),
+    },
+  ];
 }
 
 const seedDrivers: Driver[] = [];
@@ -288,6 +344,7 @@ export const useDataStore = create<DataState>()(
       promotions: PROMOTIONS,
       drivers: seedDrivers,
       customers: seedCustomers,
+      expenses: seedExpenses(),
       deductedOrderIds: [],
 
       setHydrated: (v) => set({ hydrated: v }),
@@ -671,6 +728,36 @@ export const useDataStore = create<DataState>()(
           ),
         })),
 
+      addExpense: (input) => {
+        const now = new Date().toISOString();
+        const expense: Expense = {
+          id: `exp-${Date.now()}`,
+          title: input.title.trim(),
+          category: input.category,
+          amount: input.amount,
+          notes: input.notes?.trim() || null,
+          incurred_at: input.incurredAt || now,
+          created_at: now,
+          updated_at: now,
+        };
+        set((s) => ({ expenses: [expense, ...s.expenses] }));
+        return expense;
+      },
+
+      updateExpense: (id, updates) =>
+        set((s) => ({
+          expenses: s.expenses.map((e) =>
+            e.id === id
+              ? { ...e, ...updates, updated_at: new Date().toISOString() }
+              : e
+          ),
+        })),
+
+      deleteExpense: (id) =>
+        set((s) => ({
+          expenses: s.expenses.filter((e) => e.id !== id),
+        })),
+
       resetToSeed: () =>
         set({
           categories: CATEGORIES,
@@ -681,6 +768,7 @@ export const useDataStore = create<DataState>()(
           promotions: PROMOTIONS,
           drivers: seedDrivers,
           customers: seedCustomers,
+          expenses: seedExpenses(),
           deductedOrderIds: [],
         }),
     }),
@@ -695,6 +783,7 @@ export const useDataStore = create<DataState>()(
             : { ...p, recipes: recipesForProduct(p.id) }
         );
         if (!state.deductedOrderIds) state.deductedOrderIds = [];
+        if (!state.expenses) state.expenses = seedExpenses();
         state.setHydrated(true);
       },
     }

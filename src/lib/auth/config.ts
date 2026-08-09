@@ -2,6 +2,7 @@ import type { Profile, UserRole } from "@/types";
 
 export const SESSION_COOKIE = "ic_session";
 export const GOOGLE_OAUTH_STATE_COOKIE = "ic_google_oauth";
+export const MAINTENANCE_COOKIE = "ic_maintenance";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 14; // 14 days
 
 export function getAppUrl(): string {
@@ -36,6 +37,11 @@ export function isGoogleAuthConfigured(): boolean {
 /** Demo mode is disabled for production-ready accounts. */
 export function isDemoMode(): boolean {
   return false;
+}
+
+/** Local file auth (.data) is not durable on Vercel serverless. */
+export function requiresSupabaseOnVercel(): boolean {
+  return Boolean(process.env.VERCEL) && !isSupabaseConfigured();
 }
 
 export function getSessionSecret(): string {

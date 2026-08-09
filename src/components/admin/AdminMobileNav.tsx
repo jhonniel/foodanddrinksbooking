@@ -2,22 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
   LayoutDashboard,
   ClipboardList,
   Package,
   MoreHorizontal,
-} from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
-import { cn } from "@/lib/utils";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
+  LogOut,
   Warehouse,
   Users,
   Bike,
@@ -28,7 +19,19 @@ import {
   BarChart3,
   Settings,
   Tags,
+  Wallet,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/stores/auth";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 const primary = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -46,6 +49,7 @@ const moreLinks = [
   { href: "/admin/rewards", label: "Rewards", icon: Gift },
   { href: "/admin/promotions", label: "Promotions", icon: Megaphone },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
+  { href: "/admin/expenses", label: "Expenses", icon: Wallet },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
@@ -53,7 +57,21 @@ const moreLinks = [
 export function AdminMobileNav() {
   const pathname = usePathname();
   const reduce = useReducedMotion();
+  const logout = useAuthStore((s) => s.logout);
+  const [loggingOut, setLoggingOut] = useState(false);
   const moreActive = moreLinks.some((l) => pathname.startsWith(l.href));
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+      toast.success("Logged out");
+      window.location.href = "/login";
+    } catch {
+      toast.error("Could not log out");
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <nav
@@ -109,7 +127,7 @@ export function AdminMobileNav() {
               <SheetHeader>
                 <SheetTitle className="text-navy">More</SheetTitle>
               </SheetHeader>
-              <div className="mt-4 grid grid-cols-3 gap-3 pb-6">
+              <div className="mt-4 grid grid-cols-3 gap-3 pb-4">
                 {moreLinks.map(({ href, label, icon: Icon }) => {
                   const active = pathname.startsWith(href);
                   return (
@@ -129,6 +147,15 @@ export function AdminMobileNav() {
                   );
                 })}
               </div>
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => void handleLogout()}
+                className="mb-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+              >
+                <LogOut className="h-4 w-4" />
+                {loggingOut ? "Logging out…" : "Log out"}
+              </button>
             </SheetContent>
           </Sheet>
         </li>

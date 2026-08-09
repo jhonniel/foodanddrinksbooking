@@ -15,11 +15,14 @@ import {
   Megaphone,
   CreditCard,
   BarChart3,
+  Wallet,
   Settings,
   Menu,
   X,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/Logo";
 import { useAuthStore } from "@/stores/auth";
@@ -40,6 +43,7 @@ const navItems = [
   { href: "/admin/rewards", label: "Rewards", icon: Gift, permission: "rewards" },
   { href: "/admin/promotions", label: "Promotions", icon: Megaphone, permission: "promotions" },
   { href: "/admin/payments", label: "Payments", icon: CreditCard, permission: "payments" },
+  { href: "/admin/expenses", label: "Expenses", icon: Wallet, permission: "reports" },
   { href: "/admin/reports", label: "Reports", icon: BarChart3, permission: "reports" },
   { href: "/admin/settings", label: "Settings", icon: Settings, permission: "settings" },
 ];
@@ -47,8 +51,10 @@ const navItems = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
   const role = (user?.role || "STAFF") as UserRole;
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const filtered = navItems.filter(
     (item) =>
@@ -56,6 +62,18 @@ export function AdminSidebar() {
       hasPermission(role, "*") ||
       role === "SUPER_ADMIN"
   );
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+      toast.success("Logged out");
+      window.location.href = "/login";
+    } catch {
+      toast.error("Could not log out");
+      setLoggingOut(false);
+    }
+  };
 
   const Nav = (
     <>
@@ -66,7 +84,10 @@ export function AdminSidebar() {
           className="text-white/80 hover:bg-white/10"
         />
       </div>
-      <nav className="flex-1 space-y-0.5 overflow-y-auto p-3" aria-label="Admin navigation">
+      <nav
+        className="flex-1 space-y-0.5 overflow-y-auto p-3"
+        aria-label="Admin navigation"
+      >
         {filtered.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/admin"
@@ -90,18 +111,28 @@ export function AdminSidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-sidebar-border p-4">
-        <p className="text-xs text-white/50">{user?.full_name}</p>
-        <p className="text-[11px] capitalize text-white/40">
-          {user?.role?.replace("_", " ").toLowerCase()}
-        </p>
+      <div className="space-y-3 border-t border-sidebar-border p-4">
+        <div>
+          <p className="text-xs text-white/50">{user?.full_name}</p>
+          <p className="text-[11px] capitalize text-white/40">
+            {user?.role?.replace("_", " ").toLowerCase()}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={loggingOut}
+          onClick={() => void handleLogout()}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm font-medium text-white/85 transition hover:bg-white/10 hover:text-white disabled:opacity-60"
+        >
+          <LogOut className="h-4 w-4" />
+          {loggingOut ? "Logging out…" : "Log out"}
+        </button>
       </div>
     </>
   );
 
   return (
     <>
-      {/* Mobile top bar */}
       <div className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b bg-navy px-4 lg:hidden">
         <Logo variant="light" size="sm" href="/admin" />
         <div className="flex items-center gap-1">

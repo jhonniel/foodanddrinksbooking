@@ -6,6 +6,8 @@ import {
   Users,
   Truck,
   AlertTriangle,
+  Wallet,
+  TrendingUp,
 } from "lucide-react";
 import {
   LineChart,
@@ -18,6 +20,7 @@ import {
   PieChart,
   Pie,
   Cell,
+  Legend,
 } from "recharts";
 import { StatsCard } from "@/components/shared/StatsCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -25,6 +28,10 @@ import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
 import { formatCurrency, relativeTime } from "@/lib/utils/format";
 import { ORDER_STATUS_LABELS } from "@/lib/constants";
+import {
+  computeFinance,
+  salesVsExpensesOverTime,
+} from "@/services/financeService";
 import type { OrderStatus } from "@/types";
 
 const CHART_COLORS = [
@@ -35,28 +42,6 @@ const CHART_COLORS = [
   "#D97706",
   "#94A3B8",
 ];
-
-function buildWeeklySales(orders: { created_at: string; total: number }[]) {
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const now = new Date();
-  const points = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(now);
-    d.setDate(now.getDate() - (6 - i));
-    d.setHours(0, 0, 0, 0);
-    return {
-      key: d.toDateString(),
-      day: days[d.getDay()],
-      sales: 0,
-    };
-  });
-  const byKey = new Map(points.map((p) => [p.key, p]));
-  for (const order of orders) {
-    const key = new Date(order.created_at).toDateString();
-    const bucket = byKey.get(key);
-    if (bucket) bucket.sales += order.total;
-  }
-  return points.map(({ day, sales }) => ({ day, sales }));
-}
 
 function buildTopDrinks(
   orders: {
@@ -84,6 +69,7 @@ export default function AdminDashboardPage() {
   const deliveries = useAppStore((s) => s.deliveries);
   const inventory = useDataStore((s) => s.inventory);
   const customers = useDataStore((s) => s.customers);
+  const expenses = useDataStore((s) => s.expenses);
 
   const todayOrders = orders.filter((o) => {
     const d = new Date(o.created_at);
@@ -91,14 +77,15 @@ export default function AdminDashboardPage() {
     return d.toDateString() === now.toDateString();
   });
 
-  const todaysSales = todayOrders.reduce((sum, o) => sum + o.total, 0);
+  const todayFinance = computeFinance(orders, expenses, { todayOnly: true });
+  const allFinance = computeFinance(orders, expenses);
   const orderCount = todayOrders.length;
   const customerCount = customers.filter((c) => c.role === "CUSTOMER").length;
   const pendingDeliveries = deliveries.filter(
     (d) => !["DELIVERED", "CANCELLED"].includes(d.status)
   ).length;
 
-  const weeklySales = buildWeeklySales(orders);
+  const weeklySalesExpenses = salesVsExpensesOverTime(orders, expenses, 7);
   const topDrinks = buildTopDrinks(orders);
 
   const statusCounts = orders.reduce<Record<string, number>>((acc, o) => {
@@ -131,13 +118,27 @@ export default function AdminDashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-3 2xl:grid-cols-6">
         <StatsCard
           title="Today's Sales"
-          value={formatCurrency(todaysSales)}
-          numericValue={todaysSales}
+          value={formatCurrency(todayFinance.sales)}
+          numericValue={todayFinance.sales}
           formatNumber={(n) => formatCurrency(Math.round(n))}
           icon={DollarSign}
+        />
+        <StatsCard
+          title="Today's Expenses"
+          value={formatCurrency(todayFinance.expenses)}
+          numericValue={todayFinance.expenses}
+          formatNumber={(n) => formatCurrency(Math.round(n))}
+          icon={Wallet}
+        />
+        <StatsCard
+          title="Today's Profit"
+          value={formatCurrency(todayFinance.profit)}
+          numericValue={todayFinance.profit}
+          formatNumber={(n) => formatCurrency(Math.round(n))}
+          icon={TrendingUp}
         />
         <StatsCard
           title="Orders"
@@ -159,14 +160,51 @@ export default function AdminDashboardPage() {
         />
       </div>
 
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl bg-white px-4 py-3 shadow-card">
+          <p className="text-xs text-muted-foreground">All-time sales</p>
+          <p className="text-lg font-bold text-navy">
+            {formatCurrency(allFinance.sales)}
+          </p>
+        </div>
+        <div className="rounded-2xl bg-white px-4 py-3 shadow-card">
+          <p className="text-xs text-muted-foreground">
+            All-time expenses (manual + COGS)
+          </p>
+          <p className="text-lg font-bold text-navy">
+            {formatCurrency(allFinance.expenses)}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Manual {formatCurrency(allFinance.manualExpenses)} · COGS{" "}
+            {formatCurrency(allFinance.cogs)}
+          </p>
+          <a
+            href="/admin/expenses"
+            className="mt-2 inline-block text-xs font-semibold text-sky hover:underline"
+          >
+            Record expense →
+          </a>
+        </div>
+        <div className="rounded-2xl bg-white px-4 py-3 shadow-card">
+          <p className="text-xs text-muted-foreground">All-time net profit</p>
+          <p
+            className={`text-lg font-bold ${
+              allFinance.profit >= 0 ? "text-green" : "text-red-600"
+            }`}
+          >
+            {formatCurrency(allFinance.profit)}
+          </p>
+        </div>
+      </div>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="rounded-2xl bg-white p-4 shadow-card sm:p-5 lg:col-span-2">
           <h2 className="mb-4 text-base font-semibold text-navy sm:text-lg">
-            Sales Overview
+            Sales vs Expenses
           </h2>
           <div className="h-56 sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={weeklySales}>
+              <LineChart data={weeklySalesExpenses}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="day" tick={{ fill: "#64748b", fontSize: 12 }} />
                 <YAxis
@@ -182,12 +220,22 @@ export default function AdminDashboardPage() {
                     border: "1px solid #e2e8f0",
                   }}
                 />
+                <Legend />
                 <Line
                   type="monotone"
                   dataKey="sales"
+                  name="Sales"
                   stroke="#1FA7E1"
                   strokeWidth={2.5}
                   dot={{ fill: "#1FA7E1", r: 4 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="expenses"
+                  name="Expenses"
+                  stroke="#D97706"
+                  strokeWidth={2.5}
+                  dot={{ fill: "#D97706", r: 4 }}
                 />
               </LineChart>
             </ResponsiveContainer>

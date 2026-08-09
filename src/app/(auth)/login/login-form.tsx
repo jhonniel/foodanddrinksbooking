@@ -74,7 +74,7 @@ function LoginFormInner() {
           <Logo href="/" size="lg" className="justify-center" />
           <h1 className="mt-6 text-2xl font-bold text-navy">Welcome back</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in with Google or your email.
+            Sign in with your email and password.
           </p>
         </div>
 

@@ -1,63 +1,99 @@
-import { promises as fs } from "fs";
-import path from "path";
+import "server-only";
 
-export interface AppSettings {
-  maintenance_mode: boolean;
-  updated_at: string | null;
-}
+import { isSupabaseConfigured } from "@/lib/auth/config";
+import { createClient } from "@supabase/supabase-js";
+import type { AppSettings } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+export type { AppSettings } from "./types";
+
+const SETTINGS_KEY = "maintenance_mode";
 
 const DEFAULT_SETTINGS: AppSettings = {
   maintenance_mode: false,
   updated_at: null,
 };
 
-async function ensureStore(): Promise<AppSettings> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    const raw = await fs.readFile(SETTINGS_FILE, "utf8");
-    const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return {
-      maintenance_mode: Boolean(parsed.maintenance_mode),
-      updated_at: parsed.updated_at ?? null,
-    };
-  } catch {
-    await fs.writeFile(
-      SETTINGS_FILE,
-      JSON.stringify(DEFAULT_SETTINGS, null, 2),
-      "utf8"
-    );
-    return { ...DEFAULT_SETTINGS };
-  }
+function createServiceSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
-async function saveStore(settings: AppSettings): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(
-    SETTINGS_FILE,
-    JSON.stringify(settings, null, 2),
-    "utf8"
+function parseMaintenanceValue(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === "1") return true;
+  if (value && typeof value === "object" && "enabled" in value) {
+    return Boolean((value as { enabled: unknown }).enabled);
+  }
+  return false;
+}
+
+async function getSupabaseSettings(): Promise<AppSettings> {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("value, updated_at")
+    .eq("key", SETTINGS_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[settings] supabase read failed", error.message);
+    return { ...DEFAULT_SETTINGS };
+  }
+
+  return {
+    maintenance_mode: parseMaintenanceValue(data?.value),
+    updated_at: data?.updated_at ?? null,
+  };
+}
+
+async function setSupabaseMaintenance(enabled: boolean): Promise<AppSettings> {
+  const supabase = createServiceSupabase();
+  const updated_at = new Date().toISOString();
+  const { error } = await supabase.from("app_settings").upsert(
+    {
+      key: SETTINGS_KEY,
+      value: enabled,
+      updated_at,
+    },
+    { onConflict: "key" }
   );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { maintenance_mode: enabled, updated_at };
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  return ensureStore();
+  if (isSupabaseConfigured()) {
+    return getSupabaseSettings();
+  }
+  const { readLocalSettings } = await import("./localFileStore");
+  return readLocalSettings();
 }
 
 export async function isMaintenanceMode(): Promise<boolean> {
-  const settings = await ensureStore();
+  const settings = await getAppSettings();
   return settings.maintenance_mode;
 }
 
 export async function setMaintenanceMode(
   enabled: boolean
 ): Promise<AppSettings> {
+  if (isSupabaseConfigured()) {
+    return setSupabaseMaintenance(enabled);
+  }
   const settings: AppSettings = {
     maintenance_mode: enabled,
     updated_at: new Date().toISOString(),
   };
-  await saveStore(settings);
+  const { writeLocalSettings } = await import("./localFileStore");
+  await writeLocalSettings(settings);
   return settings;
 }

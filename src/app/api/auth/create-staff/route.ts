@@ -58,6 +58,11 @@ export async function POST(request: Request) {
       return jsonError(profileError.message);
     }
 
+    await supabase.auth.admin.updateUserById(data.user.id, {
+      app_metadata: { role },
+      user_metadata: { full_name: fullName, phone: phone ?? null },
+    });
+
     return jsonOk({ profile });
   }
 

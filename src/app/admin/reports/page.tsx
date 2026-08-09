@@ -14,8 +14,11 @@ import {
   PieChart,
   Pie,
   Cell,
+  Legend,
 } from "recharts";
+import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
+import { useDataStore } from "@/stores/data";
 import { StatsCard } from "@/components/shared/StatsCard";
 import {
   computeAnalytics,
@@ -23,7 +26,12 @@ import {
   topProducts,
   revenueByCategory,
 } from "@/services/analyticsService";
-import { formatCurrency } from "@/lib/utils/format";
+import {
+  computeFinance,
+  salesVsExpensesOverTime,
+  EXPENSE_CATEGORY_LABELS,
+} from "@/services/financeService";
+import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import {
   Select,
   SelectContent,
@@ -31,6 +39,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   DollarSign,
   ShoppingBag,
@@ -38,19 +57,80 @@ import {
   Truck,
   Gift,
   Users,
+  Wallet,
+  TrendingUp,
+  Plus,
+  Trash2,
 } from "lucide-react";
+import type { ExpenseCategory } from "@/types";
 
 const PIE_COLORS = ["#1FA7E1", "#176B3A", "#0B2A4A", "#2E8B57", "#94a3b8"];
 
+const EXPENSE_CATEGORIES = Object.keys(
+  EXPENSE_CATEGORY_LABELS
+) as ExpenseCategory[];
+
 export default function AdminReportsPage() {
   const orders = useAppStore((s) => s.orders);
+  const expenses = useDataStore((s) => s.expenses);
+  const addExpense = useDataStore((s) => s.addExpense);
+  const deleteExpense = useDataStore((s) => s.deleteExpense);
   const [range, setRange] = useState("7d");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState<ExpenseCategory>("SUPPLIES");
+  const [notes, setNotes] = useState("");
 
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
   const summary = useMemo(() => computeAnalytics(orders), [orders]);
-  const sales = useMemo(() => salesOverTime(orders, Math.min(days, 14)), [orders, days]);
+  const finance = useMemo(
+    () => computeFinance(orders, expenses),
+    [orders, expenses]
+  );
+  const sales = useMemo(
+    () => salesOverTime(orders, Math.min(days, 14)),
+    [orders, days]
+  );
+  const salesExpenses = useMemo(
+    () => salesVsExpensesOverTime(orders, expenses, Math.min(days, 14)),
+    [orders, expenses, days]
+  );
   const products = useMemo(() => topProducts(orders, 6), [orders]);
   const categories = useMemo(() => revenueByCategory(orders), [orders]);
+
+  const recentExpenses = useMemo(
+    () =>
+      [...expenses].sort(
+        (a, b) =>
+          new Date(b.incurred_at).getTime() - new Date(a.incurred_at).getTime()
+      ),
+    [expenses]
+  );
+
+  const handleAddExpense = () => {
+    const parsed = parseFloat(amount);
+    if (!title.trim()) {
+      toast.error("Expense title is required.");
+      return;
+    }
+    if (!amount || isNaN(parsed) || parsed <= 0) {
+      toast.error("Enter a valid amount.");
+      return;
+    }
+    addExpense({
+      title: title.trim(),
+      category,
+      amount: parsed,
+      notes: notes.trim() || undefined,
+    });
+    toast.success("Expense recorded.");
+    setDialogOpen(false);
+    setTitle("");
+    setAmount("");
+    setNotes("");
+    setCategory("SUPPLIES");
+  };
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
@@ -58,7 +138,7 @@ export default function AdminReportsPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy">Reports</h1>
           <p className="text-sm text-muted-foreground">
-            Sales, products, loyalty, and delivery performance
+            Sales, expenses, products, loyalty, and delivery performance
           </p>
         </div>
         <Select value={range} onValueChange={(v) => setRange(v ?? "7d")}>
@@ -76,8 +156,18 @@ export default function AdminReportsPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatsCard
           title="Total Sales"
-          value={formatCurrency(summary.totalSales)}
+          value={formatCurrency(finance.sales)}
           icon={DollarSign}
+        />
+        <StatsCard
+          title="Total Expenses"
+          value={formatCurrency(finance.expenses)}
+          icon={Wallet}
+        />
+        <StatsCard
+          title="Net Profit"
+          value={formatCurrency(finance.profit)}
+          icon={TrendingUp}
         />
         <StatsCard
           title="Orders"
@@ -104,24 +194,39 @@ export default function AdminReportsPage() {
           value={`${summary.deliveryCompletionRate}%`}
           icon={Truck}
         />
+        <StatsCard
+          title="Ingredient COGS"
+          value={formatCurrency(finance.cogs)}
+          icon={Wallet}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl bg-white p-5 shadow-card">
-          <h2 className="mb-4 font-semibold text-navy">Sales Over Time</h2>
+          <h2 className="mb-4 font-semibold text-navy">Sales vs Expenses</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={sales}>
+              <LineChart data={salesExpenses}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                <XAxis dataKey="day" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip
                   formatter={(value) => formatCurrency(Number(value ?? 0))}
                 />
+                <Legend />
                 <Line
                   type="monotone"
                   dataKey="sales"
+                  name="Sales"
                   stroke="#1FA7E1"
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="expenses"
+                  name="Expenses"
+                  stroke="#D97706"
                   strokeWidth={2.5}
                   dot={{ r: 3 }}
                 />
@@ -144,6 +249,146 @@ export default function AdminReportsPage() {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-2xl bg-white p-5 shadow-card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-navy">Expenses</h2>
+            <p className="text-xs text-muted-foreground">
+              Manual costs + estimated ingredient COGS from delivered orders
+            </p>
+          </div>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-green px-2.5 text-sm font-medium text-white hover:bg-green/90">
+              <Plus className="mr-0 h-4 w-4" />
+              Add expense
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add expense</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-2">
+                <div>
+                  <Label htmlFor="exp-title">Title *</Label>
+                  <Input
+                    id="exp-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Store rent"
+                  />
+                </div>
+                <div>
+                  <Label>Category *</Label>
+                  <Select
+                    value={category}
+                    onValueChange={(v) =>
+                      v && setCategory(v as ExpenseCategory)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPENSE_CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {EXPENSE_CATEGORY_LABELS[c]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="exp-amount">Amount (₱) *</Label>
+                  <Input
+                    id="exp-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="2500"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="exp-notes">Notes</Label>
+                  <Textarea
+                    id="exp-notes"
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+                <Button
+                  className="w-full bg-green hover:bg-green/90"
+                  onClick={handleAddExpense}
+                >
+                  Save expense
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Manual expenses</p>
+            <p className="font-semibold text-navy">
+              {formatCurrency(finance.manualExpenses)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Estimated COGS</p>
+            <p className="font-semibold text-navy">
+              {formatCurrency(finance.cogs)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Combined</p>
+            <p className="font-semibold text-navy">
+              {formatCurrency(finance.expenses)}
+            </p>
+          </div>
+        </div>
+
+        {recentExpenses.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No expenses recorded yet.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {recentExpenses.map((expense) => (
+              <li
+                key={expense.id}
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
+              >
+                <div>
+                  <p className="font-medium text-navy">{expense.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {EXPENSE_CATEGORY_LABELS[expense.category]} ·{" "}
+                    {formatDateTime(expense.incurred_at)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-navy">
+                    {formatCurrency(expense.amount)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive"
+                    onClick={() => {
+                      deleteExpense(expense.id);
+                      toast.success("Expense removed.");
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

@@ -9,18 +9,21 @@ import {
 } from "@/lib/auth/config";
 import { verifySessionToken } from "@/lib/auth/session";
 import { findAccountById } from "@/lib/auth/accounts";
-import { createServerClient } from "@/lib/supabase/server";
+import {
+  createBrowserLikeServerClient,
+  createServerClient,
+} from "@/lib/supabase/server";
 import type { Profile, UserRole } from "@/types";
 
 export async function getSessionProfileFromCookies(): Promise<Profile | null> {
+  // Prefer Supabase session whenever configured (Vercel / production).
+  if (isSupabaseConfigured()) {
+    return getSupabaseProfile();
+  }
+
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
-  if (!token) {
-    if (isSupabaseConfigured()) {
-      return getSupabaseProfile();
-    }
-    return null;
-  }
+  if (!token) return null;
 
   const payload = await verifySessionToken(token);
   if (!payload) return null;
@@ -33,13 +36,12 @@ export async function getSessionProfileFromCookies(): Promise<Profile | null> {
 export async function getSessionProfileFromRequest(
   request: NextRequest
 ): Promise<Profile | null> {
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!token) {
-    if (isSupabaseConfigured()) {
-      return getSupabaseProfile();
-    }
-    return null;
+  if (isSupabaseConfigured()) {
+    return getSupabaseProfile();
   }
+
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
   const payload = await verifySessionToken(token);
   if (!payload) return null;
   const account = await findAccountById(payload.sub);
@@ -48,7 +50,7 @@ export async function getSessionProfileFromRequest(
 }
 
 async function getSupabaseProfile(): Promise<Profile | null> {
-  const supabase = await createServerClient();
+  const supabase = await createBrowserLikeServerClient();
   if (!supabase) return null;
 
   const {
@@ -56,11 +58,24 @@ async function getSupabaseProfile(): Promise<Profile | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await supabase
+  // Prefer user-scoped read; fall back to service role if RLS blocks.
+  let { data } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .maybeSingle();
+
+  if (!data) {
+    const admin = await createServerClient();
+    if (admin) {
+      const res = await admin
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+      data = res.data;
+    }
+  }
 
   if (!data) return null;
   return data as Profile;

@@ -16,6 +16,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void initialize();
+    // Sync maintenance cookie for Edge middleware (local mode)
+    void fetch("/api/settings", { credentials: "include", cache: "no-store" });
   }, [initialize]);
 
   useEffect(() => {

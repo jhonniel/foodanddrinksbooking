@@ -58,13 +58,15 @@ npm run seed:users
 ### Connect Supabase
 
 1. Create a Supabase project
-2. Run migrations in `supabase/migrations/`:
+2. Run migrations in `supabase/migrations/` (SQL editor or CLI), in order:
    - `001_initial_schema.sql` — schema, RLS, triggers
    - `002_seed_data.sql` — categories, products, inventory, rewards
    - `003_harden_auth_roles.sql` — force CUSTOMER on signup; admin-only role changes
-3. Set env vars:
+   - `004_maintenance_and_role_fix.sql` — maintenance setting + service-role role updates
+3. Set env vars (local `.env.local` and Vercel project settings):
 
 ```env
+NEXT_PUBLIC_APP_URL=https://your-app.vercel.app
 NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
@@ -72,6 +74,16 @@ AUTH_SESSION_SECRET=long-random-secret
 NEXT_PUBLIC_DEMO_MODE=false
 ```
 
+### Deploy on Vercel
+
+Local `.data/accounts.json` **does not work** on Vercel (ephemeral filesystem). You must configure Supabase as above.
+
+1. Push the repo and import it in Vercel
+2. Add the env vars from the previous section
+3. Deploy
+4. Register the first user — they become **SUPER_ADMIN** automatically when no admins exist yet
+
+Without Supabase env vars, auth falls back to `.data/` which is only for local development.
 ## Project structure
 
 ```

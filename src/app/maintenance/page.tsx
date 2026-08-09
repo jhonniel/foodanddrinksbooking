@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 
@@ -43,19 +42,6 @@ export default function MaintenancePage() {
           />
         </motion.div>
       </div>
-
-      <footer className="relative z-10 border-t border-white/30 bg-[#0b3d6e]/90 px-4 py-3 text-center backdrop-blur-sm">
-        <p className="text-xs text-white/80 sm:text-sm">
-          Staff and drivers can still{" "}
-          <Link
-            href="/login"
-            className="font-semibold text-[#b8f26e] underline-offset-2 hover:underline"
-          >
-            sign in
-          </Link>
-          .
-        </p>
-      </footer>
     </div>
   );
 }

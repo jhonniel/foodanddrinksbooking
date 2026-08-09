@@ -2,6 +2,10 @@
 
 import { useSearchParams } from "next/navigation";
 
+const googleEnabled =
+  process.env.NEXT_PUBLIC_GOOGLE_AUTH === "true" ||
+  Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim());
+
 export function GoogleSignInButton({
   label = "Continue with Google",
 }: {
@@ -10,6 +14,8 @@ export function GoogleSignInButton({
   const params = useSearchParams();
   const next = params.get("next") || "/home";
   const href = `/api/auth/google?next=${encodeURIComponent(next)}`;
+
+  if (!googleEnabled) return null;
 
   return (
     <a
@@ -52,13 +58,15 @@ function GoogleIcon() {
 }
 
 export function AuthDivider({ text = "or" }: { text?: string }) {
+  if (!googleEnabled) return null;
+
   return (
     <div className="relative my-5">
       <div className="absolute inset-0 flex items-center">
         <div className="w-full border-t border-border" />
       </div>
       <div className="relative flex justify-center text-xs uppercase">
-        <span className="bg-white px-3 text-muted-foreground">{text}</span>
+        <span className="bg-white px-2 text-muted-foreground">{text}</span>
       </div>
     </div>
   );

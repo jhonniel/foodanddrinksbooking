@@ -1,8 +1,14 @@
 import { z } from "zod";
 import { authenticateAccount } from "@/lib/auth/accounts";
-import { isSupabaseConfigured } from "@/lib/auth/config";
+import {
+  isSupabaseConfigured,
+  requiresSupabaseOnVercel,
+} from "@/lib/auth/config";
 import { setSessionCookie, jsonError, jsonOk } from "@/lib/auth/http";
-import { createBrowserLikeServerClient } from "@/lib/supabase/server";
+import {
+  createBrowserLikeServerClient,
+  createServerClient,
+} from "@/lib/supabase/server";
 import type { Profile } from "@/types";
 
 const bodySchema = z.object({
@@ -15,6 +21,13 @@ export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
     return jsonError("Invalid email or password.");
+  }
+
+  if (requiresSupabaseOnVercel()) {
+    return jsonError(
+      "Login is not available: configure Supabase env vars on Vercel (NEXT_PUBLIC_SUPABASE_URL, ANON KEY, SERVICE ROLE KEY).",
+      503
+    );
   }
 
   const { email, password } = parsed.data;
@@ -53,6 +66,19 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    // Keep app_metadata.role in sync for middleware fallbacks
+    if (profileRow?.role) {
+      const metaRole = data.user.app_metadata?.role;
+      if (metaRole !== profileRow.role) {
+        const admin = await createServerClient();
+        if (admin) {
+          await admin.auth.admin.updateUserById(data.user.id, {
+            app_metadata: { role: profileRow.role },
+          });
+        }
+      }
+    }
 
     return jsonOk({ profile });
   }

@@ -16,13 +16,16 @@ async function parseJson(res: Response) {
   }
 }
 
+const jsonHeaders = { "Content-Type": "application/json" } as const;
+
 export async function loginWithPassword(
   email: string,
   password: string
 ): Promise<AuthResult> {
   const res = await fetch("/api/auth/login", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders,
+    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
   const data = await parseJson(res);
@@ -40,7 +43,8 @@ export async function registerAccount(input: {
 }): Promise<AuthResult> {
   const res = await fetch("/api/auth/register", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders,
+    credentials: "include",
     body: JSON.stringify(input),
   });
   const data = await parseJson(res);
@@ -55,11 +59,18 @@ export async function registerAccount(input: {
 }
 
 export async function logoutAccount(): Promise<void> {
-  await fetch("/api/auth/logout", { method: "POST" });
+  await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+  });
 }
 
 export async function fetchCurrentProfile(): Promise<Profile | null> {
-  const res = await fetch("/api/auth/me", { method: "GET", cache: "no-store" });
+  const res = await fetch("/api/auth/me", {
+    method: "GET",
+    cache: "no-store",
+    credentials: "include",
+  });
   if (!res.ok) return null;
   const data = await parseJson(res);
   return (data?.profile as Profile) ?? null;

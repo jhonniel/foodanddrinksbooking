@@ -196,6 +196,27 @@ export interface InventoryItem {
   updated_at: string;
 }
 
+export type ExpenseCategory =
+  | "RENT"
+  | "UTILITIES"
+  | "PAYROLL"
+  | "SUPPLIES"
+  | "MARKETING"
+  | "DELIVERY"
+  | "MAINTENANCE"
+  | "OTHER";
+
+export interface Expense {
+  id: string;
+  title: string;
+  category: ExpenseCategory;
+  amount: number;
+  notes: string | null;
+  incurred_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Order {
   id: string;
   order_number: string;
