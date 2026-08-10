@@ -60,6 +60,11 @@ export const NotificationTemplates = {
     title: "New order",
     body: `Order #${orderNumber} just came in.`,
   }),
+  orderAutoCancelled: (orderNumber: string) => ({
+    type: "ORDER" as const,
+    title: "Order cancelled",
+    body: `Order #${orderNumber} was cancelled because the store did not accept it within 1 hour.`,
+  }),
   newDeliveryDriver: (orderNumber: string) => ({
     type: "DELIVERY" as const,
     title: "New delivery",

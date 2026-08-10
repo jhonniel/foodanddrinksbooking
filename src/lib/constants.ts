@@ -68,6 +68,12 @@ export const STATUS_ACTIONS: Partial<
   READY: { label: "Assign Rider", next: "ASSIGNED" },
 };
 
+/** Unaccepted (PENDING) orders auto-cancel after this duration. */
+export const PENDING_ACCEPT_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+
+export const AUTO_CANCEL_REASON =
+  "Store did not accept the order within 1 hour";
+
 export const PERMISSIONS = {
   SUPER_ADMIN: ["*"],
   ADMIN: [

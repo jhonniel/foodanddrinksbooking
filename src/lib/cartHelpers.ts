@@ -22,7 +22,7 @@ export function buildDefaultCartItem(
   return {
     productId: product.id,
     productName: product.name,
-    productImage: product.image_url,
+    productImage: product.image_url ?? null,
     basePrice: product.base_price,
     quantity,
     options,

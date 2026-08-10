@@ -15,40 +15,42 @@ import {
 } from "@/lib/orders/localFileStore";
 import type { CartItem } from "@/types";
 
+const cartItemSchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  productName: z.string(),
+  productImage: z.string().nullish().transform((v) => v ?? null),
+  basePrice: z.number().nonnegative(),
+  quantity: z.number().int().positive(),
+  options: z
+    .array(
+      z.object({
+        optionId: z.string(),
+        optionName: z.string(),
+        valueId: z.string(),
+        valueName: z.string(),
+        priceAdjustment: z.number(),
+      })
+    )
+    .default([]),
+  addons: z
+    .array(
+      z.object({
+        addonId: z.string(),
+        name: z.string(),
+        price: z.number(),
+        quantity: z.number().int().positive(),
+      })
+    )
+    .default([]),
+  specialInstructions: z.string().optional(),
+});
+
 const orderApiSchema = checkoutSchema.and(
   z.object({
     customerId: z.string().min(1).optional(),
     customerName: z.string().min(1).optional(),
-    items: z
-      .array(
-        z.object({
-          id: z.string(),
-          productId: z.string(),
-          productName: z.string(),
-          productImage: z.string().nullable(),
-          basePrice: z.number().nonnegative(),
-          quantity: z.number().int().positive(),
-          options: z.array(
-            z.object({
-              optionId: z.string(),
-              optionName: z.string(),
-              valueId: z.string(),
-              valueName: z.string(),
-              priceAdjustment: z.number(),
-            })
-          ),
-          addons: z.array(
-            z.object({
-              addonId: z.string(),
-              name: z.string(),
-              price: z.number(),
-              quantity: z.number().int().positive(),
-            })
-          ),
-          specialInstructions: z.string().optional(),
-        })
-      )
-      .min(1, "Cart cannot be empty"),
+    items: z.array(cartItemSchema).min(1, "Cart cannot be empty"),
     deliveryFee: z.number().nonnegative(),
     subtotal: z.number().nonnegative(),
     discount: z.number().nonnegative().default(0),
@@ -65,11 +67,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { orders, deliveries } = await getOrdersSnapshot();
+  const { orders, deliveries, autoCancelled } = await getOrdersSnapshot();
   const isStaff = canAccessAdmin(profile.role);
 
   if (isStaff) {
-    return NextResponse.json({ orders, deliveries });
+    return NextResponse.json({ orders, deliveries, autoCancelled });
   }
 
   return NextResponse.json({
@@ -79,6 +81,7 @@ export async function GET(request: NextRequest) {
         (o) => o.id === d.order_id && o.customer_id === profile.id
       )
     ),
+    autoCancelled: autoCancelled.filter((o) => o.customer_id === profile.id),
   });
 }
 

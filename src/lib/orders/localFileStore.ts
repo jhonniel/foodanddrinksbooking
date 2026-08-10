@@ -2,6 +2,10 @@ import "server-only";
 
 import { promises as fs } from "fs";
 import path from "path";
+import {
+  AUTO_CANCEL_REASON,
+  PENDING_ACCEPT_TIMEOUT_MS,
+} from "@/lib/constants";
 import type { DeliveryOrder, Order, OrderStatus } from "@/types";
 
 interface OrdersDb {
@@ -38,7 +42,42 @@ async function saveStore(db: OrdersDb): Promise<void> {
   await fs.writeFile(ORDERS_FILE, JSON.stringify(db, null, 2), "utf8");
 }
 
+/**
+ * Cancel PENDING orders the store never accepted within the timeout window.
+ * Runs lazily whenever the orders store is read.
+ */
+export async function cancelStalePendingOrders(
+  nowMs = Date.now()
+): Promise<Order[]> {
+  const db = await ensureStore();
+  const nowIso = new Date(nowMs).toISOString();
+  const cancelled: Order[] = [];
+
+  let changed = false;
+  db.orders = db.orders.map((order) => {
+    if (order.status !== "PENDING") return order;
+    const created = Date.parse(order.created_at);
+    if (!Number.isFinite(created)) return order;
+    if (nowMs - created < PENDING_ACCEPT_TIMEOUT_MS) return order;
+
+    const next: Order = {
+      ...order,
+      status: "CANCELLED",
+      cancelled_reason: AUTO_CANCEL_REASON,
+      cancelled_at: nowIso,
+      updated_at: nowIso,
+    };
+    cancelled.push(next);
+    changed = true;
+    return next;
+  });
+
+  if (changed) await saveStore(db);
+  return cancelled;
+}
+
 export async function listOrders(): Promise<Order[]> {
+  await cancelStalePendingOrders();
   const db = await ensureStore();
   return db.orders;
 }
@@ -51,9 +90,15 @@ export async function listDeliveries(): Promise<DeliveryOrder[]> {
 export async function getOrdersSnapshot(): Promise<{
   orders: Order[];
   deliveries: DeliveryOrder[];
+  autoCancelled: Order[];
 }> {
+  const autoCancelled = await cancelStalePendingOrders();
   const db = await ensureStore();
-  return { orders: db.orders, deliveries: db.deliveries };
+  return {
+    orders: db.orders,
+    deliveries: db.deliveries,
+    autoCancelled,
+  };
 }
 
 export async function nextOrderNumber(): Promise<string> {
@@ -77,6 +122,7 @@ export async function saveOrder(order: Order): Promise<Order> {
 }
 
 export async function findOrderById(orderId: string): Promise<Order | null> {
+  await cancelStalePendingOrders();
   const db = await ensureStore();
   return db.orders.find((o) => o.id === orderId) ?? null;
 }

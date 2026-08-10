@@ -131,6 +131,7 @@ export default function CheckoutPage() {
     try {
       const res = await fetch("/api/orders", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderType,
@@ -140,17 +141,30 @@ export default function CheckoutPage() {
           latitude: address?.latitude,
           longitude: address?.longitude,
           deliveryInstructions: instructions || undefined,
-          items,
+          items: items.map((item) => ({
+            ...item,
+            productImage: item.productImage ?? null,
+            options: item.options ?? [],
+            addons: item.addons ?? [],
+          })),
           deliveryFee,
           subtotal,
           discount: promoDiscount,
           pointsDiscount,
           pointsUsed: pointsToUse,
-          promoCode,
+          promoCode: promoCode ?? null,
         }),
       });
-      const data = (await res.json()) as { order?: Order; error?: string };
+      const data = (await res.json()) as {
+        order?: Order;
+        error?: string;
+        details?: Record<string, string[] | undefined>;
+      };
       if (!res.ok || !data.order) {
+        if (res.status === 401) {
+          toast.error("Please sign in to place an order");
+          return;
+        }
         toast.error(data.error ?? "Failed to place order");
         return;
       }
