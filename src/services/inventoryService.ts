@@ -1,5 +1,13 @@
 import { useDataStore } from "@/stores/data";
-import type { InventoryItem, OrderItem } from "@/types";
+import type { InventoryItem, OrderItem, Product } from "@/types";
+import { getProductStockStatus } from "@/lib/inventory/availability";
+import { syncProduct } from "@/services/catalogService";
+
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    id
+  );
+}
 
 export async function getInventory(): Promise<InventoryItem[]> {
   return useDataStore.getState().inventory;
@@ -9,6 +17,38 @@ export async function getLowStockItems(): Promise<InventoryItem[]> {
   return useDataStore
     .getState()
     .inventory.filter((i) => i.current_quantity <= i.minimum_stock);
+}
+
+/**
+ * Mark products Unavailable when:
+ * - no recipe is set, or
+ * - any recipe ingredient cannot make 1 unit.
+ * Syncs UUID products to Supabase. Returns products flipped off.
+ */
+export async function applyInventoryAvailabilityRules(): Promise<Product[]> {
+  const store = useDataStore.getState();
+  const flipped: Product[] = [];
+
+  for (const product of store.products) {
+    const status = getProductStockStatus(product, store.inventory);
+    const shouldBeUnavailable =
+      status.level === "no_recipe" || (status.makeable ?? 0) <= 0;
+    if (!shouldBeUnavailable) continue;
+    if (!product.is_available) continue;
+
+    store.updateProduct(product.id, { is_available: false });
+    const updated = useDataStore
+      .getState()
+      .products.find((p) => p.id === product.id);
+    if (updated) {
+      flipped.push(updated);
+      if (isUuid(updated.id)) {
+        void syncProduct(updated);
+      }
+    }
+  }
+
+  return flipped;
 }
 
 /**
@@ -63,6 +103,7 @@ export async function deductInventoryForOrder(
   }
 
   store.markOrderInventoryDeducted(orderId);
+  await applyInventoryAvailabilityRules();
 
   return { success: true, alreadyDeducted: false, deductions };
 }

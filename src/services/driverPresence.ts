@@ -50,7 +50,7 @@ function upsertLocalDriver(driver: Driver) {
 }
 
 /** Load / create the Supabase drivers row for the signed-in driver. */
-export async function syncMyDriverProfile(): Promise<Driver | null> {
+export async function syncMyDriverProfile(): Promise<Driver> {
   const res = await fetch("/api/drivers/me", {
     cache: "no-store",
     credentials: "include",
@@ -60,7 +60,10 @@ export async function syncMyDriverProfile(): Promise<Driver | null> {
     error?: string;
   } | null;
   if (!res.ok || !data?.driver) {
-    throw new Error(data?.error || "Could not load driver profile.");
+    throw new Error(
+      data?.error ||
+        "Could not load driver profile from Supabase. Try signing out and back in."
+    );
   }
   upsertLocalDriver(data.driver);
   useAppStore
@@ -69,19 +72,16 @@ export async function syncMyDriverProfile(): Promise<Driver | null> {
   return data.driver;
 }
 
-/** Sync Driver.status in Supabase + mirror local store / app.driverOnline. */
+/**
+ * Toggle online in Supabase. Always hits the API (does not rely on local
+ * driver cache, which can be empty after storage rehydrate).
+ */
 export async function setDriverOnlineStatus(
-  profileId: string,
+  _profileId: string,
   online: boolean
-): Promise<Driver | null> {
-  let driver = findDriverForProfile(profileId);
-  if (!driver) {
-    driver = await syncMyDriverProfile();
-  }
-  if (!driver) {
-    useAppStore.getState().setDriverOnline(false);
-    return null;
-  }
+): Promise<Driver> {
+  // Ensure linked drivers row exists in Supabase + local store.
+  await syncMyDriverProfile();
 
   const coords = online ? await readGeolocation() : null;
 
@@ -102,7 +102,8 @@ export async function setDriverOnlineStatus(
 
   if (!res.ok || !data?.driver) {
     throw new Error(
-      data?.error || "No driver profile linked to this account."
+      data?.error ||
+        "Could not update online status. Make sure this account is a DRIVER in Supabase."
     );
   }
 

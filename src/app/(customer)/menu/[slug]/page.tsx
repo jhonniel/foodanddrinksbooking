@@ -6,7 +6,9 @@ import { useParams, useRouter } from "next/navigation";
 import { Minus, Plus, Star } from "lucide-react";
 import { toast } from "sonner";
 import { getProductBySlug } from "@/services/productService";
+import { isProductOrderable } from "@/lib/inventory/availability";
 import { useCartStore } from "@/stores/cart";
+import { useDataStore } from "@/stores/data";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -66,6 +68,7 @@ export default function ProductDetailPage() {
   const router = useRouter();
   const slug = params.slug as string;
   const addItem = useCartStore((s) => s.addItem);
+  const inventory = useDataStore((s) => s.inventory);
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -130,6 +133,9 @@ export default function ProductDetailPage() {
   }, [product, cartOptions, cartAddons]);
 
   const totalPrice = unitPrice * quantity;
+  const orderable = product
+    ? isProductOrderable(product, inventory)
+    : false;
 
   const toggleAddon = (addon: ProductAddon, checked: boolean) => {
     setSelectedAddons((prev) => {
@@ -141,7 +147,7 @@ export default function ProductDetailPage() {
   };
 
   const handleAddToCart = () => {
-    if (!product) return;
+    if (!product || !orderable) return;
     addItem({
       productId: product.id,
       productName: product.name,
@@ -284,10 +290,12 @@ export default function ProductDetailPage() {
       <div className="fixed inset-x-0 bottom-[4.5rem] z-40 border-t border-border bg-white/95 px-3 py-3 backdrop-blur-md safe-bottom sm:px-4 lg:bottom-0">
         <Button
           onClick={handleAddToCart}
-          disabled={!product.is_available}
+          disabled={!orderable}
           className="mx-auto flex h-12 w-full max-w-lg rounded-xl bg-green text-sm font-bold hover:bg-green/90 sm:text-base"
         >
-          ADD TO CART — {formatCurrency(totalPrice)}
+          {orderable
+            ? `ADD TO CART — ${formatCurrency(totalPrice)}`
+            : "UNAVAILABLE"}
         </Button>
       </div>
     </div>

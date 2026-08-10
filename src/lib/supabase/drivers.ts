@@ -83,8 +83,10 @@ export async function fetchDriverByProfileId(
 export async function ensureDriverForProfile(
   profile: Profile
 ): Promise<{ driver?: Driver; error?: string }> {
-  if (profile.role !== "DRIVER" && profile.role !== "SUPER_ADMIN") {
-    return { error: "Only driver accounts can go online." };
+  if (!canBeDriverRole(profile.role)) {
+    return {
+      error: `Account role is ${profile.role}. Switch to a DRIVER account to go online.`,
+    };
   }
 
   const existing = await fetchDriverByProfileId(profile.id);
@@ -118,10 +120,15 @@ export async function ensureDriverForProfile(
     // Race: another request created it
     const again = await fetchDriverByProfileId(profile.id);
     if (again) return { driver: again };
+    console.error("[drivers] ensure insert failed:", error?.message);
     return { error: error?.message || "Could not create driver profile." };
   }
 
   return { driver: mapDriverRow(data as unknown as Record<string, unknown>) };
+}
+
+function canBeDriverRole(role: string): boolean {
+  return role === "DRIVER" || role === "SUPER_ADMIN" || role === "ADMIN";
 }
 
 export async function updateDriverStatusInSupabase(

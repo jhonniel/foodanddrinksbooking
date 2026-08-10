@@ -6,6 +6,8 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Heart, Plus, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils/format";
+import { isProductOrderable } from "@/lib/inventory/availability";
+import { useDataStore } from "@/stores/data";
 import type { Product } from "@/types";
 import { Button } from "@/components/ui/button";
 
@@ -28,6 +30,8 @@ export function ProductCard({
 }: ProductCardProps) {
   const link = href || `/menu/${product.slug}`;
   const reduce = useReducedMotion();
+  const inventory = useDataStore((s) => s.inventory);
+  const orderable = isProductOrderable(product, inventory);
 
   return (
     <motion.div
@@ -70,7 +74,7 @@ export function ProductCard({
               NEW
             </motion.span>
           )}
-          {!product.is_available && (
+          {!orderable && (
             <div className="absolute inset-0 flex items-center justify-center bg-navy/50">
               <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-navy">
                 Unavailable
@@ -118,7 +122,7 @@ export function ProductCard({
               <span>{(product.rating ?? 0).toFixed(1)}</span>
             </div>
           </div>
-          {onAdd && product.is_available && (
+          {onAdd && orderable && (
             <motion.div whileTap={{ scale: 0.88 }} whileHover={{ scale: 1.06 }}>
               <Button
                 size="icon"

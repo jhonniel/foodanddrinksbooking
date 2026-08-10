@@ -1,4 +1,5 @@
 import { useDataStore } from "@/stores/data";
+import { isProductOrderable } from "@/lib/inventory/availability";
 import type { Category, Product, ProductAddon, Promotion } from "@/types";
 
 function getState() {
@@ -24,11 +25,11 @@ export async function getProducts(filters?: {
   availableOnly?: boolean;
   sort?: "price_asc" | "price_desc" | "rating" | "popular" | "newest";
 }): Promise<Product[]> {
-  const { products, categories, addons } = getState();
+  const { products, categories, addons, inventory } = getState();
   let list = [...products];
 
   if (filters?.availableOnly !== false) {
-    list = list.filter((p) => p.is_available);
+    list = list.filter((p) => isProductOrderable(p, inventory));
   }
   if (filters?.categoryId) {
     list = list.filter((p) => p.category_id === filters.categoryId);

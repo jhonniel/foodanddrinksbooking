@@ -800,7 +800,19 @@ export const useDataStore = create<DataState>()(
         }),
     }),
     {
-      name: "island-coolers-data-v3",
+      // v4: do not persist drivers/customers — those come from Supabase.
+      // Persisting empty drivers[] overwrote /api/drivers/me after sync.
+      name: "island-coolers-data-v4",
+      partialize: (state) => ({
+        categories: state.categories,
+        products: state.products,
+        addons: state.addons,
+        inventory: state.inventory,
+        rewards: state.rewards,
+        promotions: state.promotions,
+        expenses: state.expenses,
+        deductedOrderIds: state.deductedOrderIds,
+      }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         // Backfill recipes for older persisted products that lack them
@@ -811,6 +823,8 @@ export const useDataStore = create<DataState>()(
         );
         if (!state.deductedOrderIds) state.deductedOrderIds = [];
         if (!state.expenses) state.expenses = seedExpenses();
+        state.drivers = [];
+        state.customers = [];
         state.setHydrated(true);
       },
     }

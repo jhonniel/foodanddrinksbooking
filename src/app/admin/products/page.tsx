@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { Plus, Search, Trash2, Pencil } from "lucide-react";
+import { AlertTriangle, Plus, Search, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
 import {
@@ -10,7 +10,13 @@ import {
   syncProduct,
   uploadProductImage,
 } from "@/services/catalogService";
+import { applyInventoryAvailabilityRules } from "@/services/inventoryService";
+import {
+  getProductStockStatus,
+  type ProductStockStatus,
+} from "@/lib/inventory/availability";
 import { formatCurrency } from "@/lib/utils/format";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -89,6 +95,18 @@ export default function AdminProductsPage() {
       ),
     [products, search]
   );
+
+  const stockByProductId = useMemo(() => {
+    const map = new Map<string, ProductStockStatus>();
+    for (const product of products) {
+      map.set(product.id, getProductStockStatus(product, inventory));
+    }
+    return map;
+  }, [products, inventory]);
+
+  useEffect(() => {
+    void applyInventoryAvailabilityRules();
+  }, [inventory, products.length]);
 
   const getCategoryName = (id: string) =>
     categories.find((c) => c.id === id)?.name ?? "Unknown";
@@ -225,6 +243,7 @@ export default function AdminProductsPage() {
         }
 
         toast.success(`"${trimmedName}" updated.`);
+        await applyInventoryAvailabilityRules();
         setDialogOpen(false);
         resetForm();
         return;
@@ -259,6 +278,7 @@ export default function AdminProductsPage() {
       }
 
       toast.success(`"${trimmedName}" added with ingredients.`);
+      await applyInventoryAvailabilityRules();
       setDialogOpen(false);
       resetForm();
     } finally {
@@ -267,14 +287,38 @@ export default function AdminProductsPage() {
   };
 
   const handleToggleAvailability = async (id: string, productName: string) => {
-    toggleProductAvailability(id);
     const product = useDataStore.getState().products.find((p) => p.id === id);
-    const nowAvailable = product?.is_available ?? true;
+    if (!product) return;
+
+    const turningOn = !product.is_available;
+    if (turningOn) {
+      const status = getProductStockStatus(product, inventory);
+      if (status.level === "no_recipe") {
+        toast.error(
+          `Cannot enable "${productName}" — add a recipe (ingredients) first.`
+        );
+        return;
+      }
+      if ((status.makeable ?? 0) <= 0) {
+        const blockers =
+          status.blockingIngredientNames.length > 0
+            ? status.blockingIngredientNames.join(", ")
+            : "ingredients";
+        toast.error(
+          `Cannot enable "${productName}" — out of stock (${blockers}). Restock inventory first.`
+        );
+        return;
+      }
+    }
+
+    toggleProductAvailability(id);
+    const updated = useDataStore.getState().products.find((p) => p.id === id);
+    const nowAvailable = updated?.is_available ?? true;
     toast.success(
       `"${productName}" is now ${nowAvailable ? "available" : "unavailable"}.`
     );
-    if (product && isUuid(product.id)) {
-      void syncProduct(product);
+    if (updated && isUuid(updated.id)) {
+      void syncProduct(updated);
     }
   };
 
@@ -536,80 +580,135 @@ export default function AdminProductsPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((product) => (
-            <div
-              key={product.id}
-              className="overflow-hidden rounded-2xl bg-white shadow-card"
-            >
-              <div className="relative aspect-square bg-light-blue">
-                {product.image_url && (
-                  <Image
-                    src={product.image_url}
-                    alt={product.name}
-                    fill
-                    className="object-cover"
-                    sizes="25vw"
-                  />
+          {filtered.map((product) => {
+            const stock =
+              stockByProductId.get(product.id) ??
+              getProductStockStatus(product, inventory);
+            const isNoRecipe = stock.level === "no_recipe";
+            const isOut = stock.level === "out" || isNoRecipe;
+            const isLow = stock.level === "low";
+
+            return (
+              <div
+                key={product.id}
+                className={cn(
+                  "overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-transparent",
+                  isOut && "bg-red-50/80 ring-red-300",
+                  isLow && !isOut && "bg-amber-50/70 ring-amber-300"
                 )}
-              </div>
-              <div className="space-y-3 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold text-navy">{product.name}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {getCategoryName(product.category_id)}
+              >
+                <div className="relative aspect-square bg-light-blue">
+                  {product.image_url && (
+                    <Image
+                      src={product.image_url}
+                      alt={product.name}
+                      fill
+                      className="object-cover"
+                      sizes="25vw"
+                    />
+                  )}
+                  {(isOut || isLow) && (
+                    <div
+                      className={cn(
+                        "absolute left-2 top-2 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white",
+                        isOut ? "bg-red-600" : "bg-amber-500"
+                      )}
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      {isNoRecipe
+                        ? "No recipe"
+                        : isOut
+                          ? "Out of stock"
+                          : "Low stock"}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-navy">{product.name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {getCategoryName(product.category_id)}
+                      </p>
+                    </div>
+                    <p className="font-semibold text-green">
+                      {formatCurrency(product.base_price)}
                     </p>
                   </div>
-                  <p className="font-semibold text-green">
-                    {formatCurrency(product.base_price)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {product.is_featured && (
-                    <Badge variant="secondary">Featured</Badge>
-                  )}
-                  {product.is_best_seller && (
-                    <Badge variant="secondary">Best seller</Badge>
-                  )}
-                  {!product.is_available && (
-                    <Badge variant="destructive">Unavailable</Badge>
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={product.is_available}
-                      onCheckedChange={() =>
-                        void handleToggleAvailability(product.id, product.name)
-                      }
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      Available
-                    </span>
+
+                  <div className="rounded-lg bg-muted/50 px-2.5 py-2">
+                    <p className="text-xs font-medium text-navy">
+                      {isNoRecipe
+                        ? "No recipe set — unavailable"
+                        : `Can make: ${stock.makeable ?? 0}`}
+                    </p>
+                    {stock.lowIngredientNames.length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-amber-700">
+                        Low: {stock.lowIngredientNames.join(", ")}
+                      </p>
+                    )}
+                    {stock.blockingIngredientNames.length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-red-700">
+                        Missing: {stock.blockingIngredientNames.join(", ")}
+                      </p>
+                    )}
                   </div>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openEditProduct(product)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-destructive"
-                      onClick={() =>
-                        void handleDelete(product.id, product.name)
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+
+                  <div className="flex flex-wrap gap-1">
+                    {product.is_featured && (
+                      <Badge variant="secondary">Featured</Badge>
+                    )}
+                    {product.is_best_seller && (
+                      <Badge variant="secondary">Best seller</Badge>
+                    )}
+                    {!product.is_available && (
+                      <Badge variant="destructive">Unavailable</Badge>
+                    )}
+                    {isLow && product.is_available && (
+                      <Badge className="border-transparent bg-amber-100 text-amber-800">
+                        Low ingredients
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={product.is_available}
+                        onCheckedChange={() =>
+                          void handleToggleAvailability(
+                            product.id,
+                            product.name
+                          )
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        Available
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditProduct(product)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive"
+                        onClick={() =>
+                          void handleDelete(product.id, product.name)
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

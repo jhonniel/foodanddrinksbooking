@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { applyInventoryAvailabilityRules } from "@/services/inventoryService";
 import { cn } from "@/lib/utils";
 import type { InventoryItem } from "@/types";
 
@@ -111,6 +112,13 @@ export default function AdminInventoryPage() {
     }
 
     adjustInventory(adjustItem.id, qty);
+    void applyInventoryAvailabilityRules().then((flipped) => {
+      if (flipped.length > 0) {
+        toast.warning(
+          `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable (ingredient out of stock).`
+        );
+      }
+    });
     toast.success(`Stock for "${adjustItem.name}" updated to ${qty} ${adjustItem.unit}.`);
     setAdjustItem(null);
     setAdjustQty("");
