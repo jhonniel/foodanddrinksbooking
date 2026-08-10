@@ -80,12 +80,10 @@ export async function setDriverOnlineStatus(
   _profileId: string,
   online: boolean
 ): Promise<Driver> {
-  // Ensure linked drivers row exists in Supabase + local store.
-  await syncMyDriverProfile();
-
   const coords = online ? await readGeolocation() : null;
 
-  const res = await fetch("/api/drivers/me", {
+  // Prefer PATCH (ensures + updates). Fall back to GET+PATCH only if needed.
+  let res = await fetch("/api/drivers/me", {
     method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -95,10 +93,34 @@ export async function setDriverOnlineStatus(
       longitude: coords?.lng ?? null,
     }),
   });
-  const data = (await res.json().catch(() => null)) as {
+
+  let data = (await res.json().catch(() => null)) as {
     driver?: Driver;
     error?: string;
   } | null;
+
+  // Session / cold start: ensure row exists, then retry once.
+  if ((!res.ok || !data?.driver) && res.status !== 403) {
+    try {
+      await syncMyDriverProfile();
+    } catch {
+      /* PATCH error below is enough */
+    }
+    res = await fetch("/api/drivers/me", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        online,
+        latitude: coords?.lat ?? null,
+        longitude: coords?.lng ?? null,
+      }),
+    });
+    data = (await res.json().catch(() => null)) as {
+      driver?: Driver;
+      error?: string;
+    } | null;
+  }
 
   if (!res.ok || !data?.driver) {
     throw new Error(

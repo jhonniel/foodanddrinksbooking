@@ -91,7 +91,7 @@ export async function PATCH(request: NextRequest) {
     : "OFFLINE";
 
   const result = await updateDriverStatusInSupabase(
-    profile.id,
+    profile,
     status,
     location
   );

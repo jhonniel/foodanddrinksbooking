@@ -7,9 +7,13 @@ import {
 import { createServerClient } from "@/lib/supabase/server";
 import type { Driver, DriverStatus, Profile, UserRole } from "@/types";
 
-const DRIVER_SELECT = `
+const DRIVER_COLUMNS = `
   id, profile_id, vehicle_type, vehicle_number, license_number,
-  status, rating, total_deliveries, is_active, created_at, updated_at,
+  status, rating, total_deliveries, is_active, created_at, updated_at
+`;
+
+const DRIVER_SELECT = `
+  ${DRIVER_COLUMNS},
   profile:profiles!profile_id (
     id, email, full_name, phone, avatar_url, role, is_active,
     points_balance, lifetime_points, created_at, updated_at
@@ -60,20 +64,63 @@ async function getAdminClient() {
   return createServerClient();
 }
 
+async function attachProfile(
+  driver: Driver,
+  fallback?: Profile
+): Promise<Driver> {
+  if (driver.profile) return driver;
+  if (fallback && fallback.id === driver.profile_id) {
+    return { ...driver, profile: fallback };
+  }
+
+  const client = await getAdminClient();
+  if (!client) return driver;
+
+  const { data } = await client
+    .from("profiles")
+    .select("*")
+    .eq("id", driver.profile_id)
+    .maybeSingle();
+
+  if (!data) return driver;
+  return {
+    ...driver,
+    profile: mapProfile(data as unknown as Record<string, unknown>),
+  };
+}
+
 export async function fetchDriverByProfileId(
   profileId: string
 ): Promise<Driver | null> {
   const client = await getAdminClient();
   if (!client) return null;
 
-  const { data, error } = await client
+  const withJoin = await client
     .from("drivers")
     .select(DRIVER_SELECT)
     .eq("profile_id", profileId)
     .maybeSingle();
 
-  if (error || !data) return null;
-  return mapDriverRow(data as unknown as Record<string, unknown>);
+  if (!withJoin.error && withJoin.data) {
+    return mapDriverRow(withJoin.data as unknown as Record<string, unknown>);
+  }
+
+  // Fallback without embed — join errors must not look like "unlinked".
+  const plain = await client
+    .from("drivers")
+    .select(DRIVER_COLUMNS)
+    .eq("profile_id", profileId)
+    .maybeSingle();
+
+  if (plain.error) {
+    console.error("[drivers] fetch failed:", plain.error.message);
+    return null;
+  }
+  if (!plain.data) return null;
+
+  return attachProfile(
+    mapDriverRow(plain.data as unknown as Record<string, unknown>)
+  );
 }
 
 /**
@@ -90,7 +137,7 @@ export async function ensureDriverForProfile(
   }
 
   const existing = await fetchDriverByProfileId(profile.id);
-  if (existing) return { driver: existing };
+  if (existing) return { driver: await attachProfile(existing, profile) };
 
   const client = await getAdminClient();
   if (!client) {
@@ -98,6 +145,36 @@ export async function ensureDriverForProfile(
       error:
         "SUPABASE_SERVICE_ROLE_KEY is required to create a driver profile.",
     };
+  }
+
+  // Ensure profiles row exists (FK on drivers.profile_id).
+  const { data: profileRow } = await client
+    .from("profiles")
+    .select("id")
+    .eq("id", profile.id)
+    .maybeSingle();
+
+  if (!profileRow) {
+    const now = new Date().toISOString();
+    const { error: profileError } = await client.from("profiles").upsert({
+      id: profile.id,
+      email: profile.email,
+      full_name: profile.full_name,
+      phone: profile.phone,
+      avatar_url: profile.avatar_url,
+      role: profile.role,
+      is_active: profile.is_active ?? true,
+      points_balance: profile.points_balance ?? 0,
+      lifetime_points: profile.lifetime_points ?? 0,
+      created_at: profile.created_at || now,
+      updated_at: now,
+    });
+    if (profileError) {
+      console.error("[drivers] profile upsert failed:", profileError.message);
+      return {
+        error: `Could not prepare profile for driver: ${profileError.message}`,
+      };
+    }
   }
 
   const now = new Date().toISOString();
@@ -113,18 +190,23 @@ export async function ensureDriverForProfile(
       created_at: now,
       updated_at: now,
     })
-    .select(DRIVER_SELECT)
+    .select(DRIVER_COLUMNS)
     .single();
 
   if (error || !data) {
     // Race: another request created it
     const again = await fetchDriverByProfileId(profile.id);
-    if (again) return { driver: again };
+    if (again) return { driver: await attachProfile(again, profile) };
     console.error("[drivers] ensure insert failed:", error?.message);
     return { error: error?.message || "Could not create driver profile." };
   }
 
-  return { driver: mapDriverRow(data as unknown as Record<string, unknown>) };
+  return {
+    driver: await attachProfile(
+      mapDriverRow(data as unknown as Record<string, unknown>),
+      profile
+    ),
+  };
 }
 
 function canBeDriverRole(role: string): boolean {
@@ -132,7 +214,7 @@ function canBeDriverRole(role: string): boolean {
 }
 
 export async function updateDriverStatusInSupabase(
-  profileId: string,
+  profile: Profile,
   status: DriverStatus,
   location?: { lat: number; lng: number } | null
 ): Promise<{ driver?: Driver; error?: string }> {
@@ -141,47 +223,77 @@ export async function updateDriverStatusInSupabase(
     return { error: "Supabase service role is required." };
   }
 
-  const ensured = await fetchDriverByProfileId(profileId);
-  if (!ensured) {
-    return { error: "No driver profile linked to this account." };
+  const ensured = await ensureDriverForProfile(profile);
+  if (!ensured.driver) {
+    return {
+      error:
+        ensured.error ||
+        "No driver profile linked to this account. Sign out and back in, then try again.",
+    };
   }
 
   const now = new Date().toISOString();
   const { error } = await client
     .from("drivers")
     .update({ status, updated_at: now })
-    .eq("id", ensured.id);
+    .eq("id", ensured.driver.id);
 
   if (error) return { error: error.message };
 
   if (location) {
-    await client.from("driver_locations").insert({
-      driver_id: ensured.id,
+    const { error: locError } = await client.from("driver_locations").insert({
+      driver_id: ensured.driver.id,
       latitude: location.lat,
       longitude: location.lng,
       recorded_at: now,
     });
+    if (locError) {
+      console.warn("[drivers] location insert failed:", locError.message);
+    }
   }
 
-  const refreshed = await fetchDriverByProfileId(profileId);
-  return { driver: refreshed ?? { ...ensured, status } };
+  const refreshed = await fetchDriverByProfileId(profile.id);
+  return {
+    driver: refreshed
+      ? await attachProfile(refreshed, profile)
+      : { ...ensured.driver, status, updated_at: now },
+  };
 }
 
 export async function listDriversFromSupabase(): Promise<Driver[] | null> {
   const client = await getAdminClient();
   if (!client) return null;
 
-  const { data, error } = await client
+  const withJoin = await client
     .from("drivers")
     .select(DRIVER_SELECT)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("[drivers] list failed:", error.message);
+  if (!withJoin.error && withJoin.data) {
+    return (withJoin.data ?? []).map((row) =>
+      mapDriverRow(row as unknown as Record<string, unknown>)
+    );
+  }
+
+  console.warn(
+    "[drivers] list join failed, falling back:",
+    withJoin.error?.message
+  );
+
+  const plain = await client
+    .from("drivers")
+    .select(DRIVER_COLUMNS)
+    .order("created_at", { ascending: false });
+
+  if (plain.error) {
+    console.error("[drivers] list failed:", plain.error.message);
     return null;
   }
 
-  return (data ?? []).map((row) =>
-    mapDriverRow(row as unknown as Record<string, unknown>)
+  const rows = await Promise.all(
+    (plain.data ?? []).map((row) =>
+      attachProfile(mapDriverRow(row as unknown as Record<string, unknown>))
+    )
   );
+  return rows;
 }

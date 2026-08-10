@@ -85,7 +85,7 @@ export default function DriverHomePage() {
       toast.error(
         err instanceof Error
           ? err.message
-          : "No driver profile linked to this account."
+          : "Could not update online status. Try signing out and back in."
       );
     } finally {
       setToggling(false);
