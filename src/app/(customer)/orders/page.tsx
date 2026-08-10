@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ClipboardList } from "lucide-react";
@@ -12,7 +12,7 @@ import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { trackingHeadline } from "@/lib/orderTracking";
-import type { Order, OrderStatus } from "@/types";
+import type { DeliveryOrder, Order, OrderStatus } from "@/types";
 
 const ACTIVE_STATUSES: OrderStatus[] = [
   "PENDING",
@@ -108,7 +108,35 @@ function OrderList({ orders }: { orders: Order[] }) {
 export default function OrdersPage() {
   const user = useAuthStore((s) => s.user);
   const allOrders = useAppStore((s) => s.orders);
+  const mergeOrders = useAppStore((s) => s.mergeOrders);
+  const mergeDeliveries = useAppStore((s) => s.mergeDeliveries);
   const [tab, setTab] = useState("active");
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/orders", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          orders?: Order[];
+          deliveries?: DeliveryOrder[];
+        };
+        if (cancelled) return;
+        if (Array.isArray(data.orders)) mergeOrders(data.orders);
+        if (Array.isArray(data.deliveries)) mergeDeliveries(data.deliveries);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, mergeOrders, mergeDeliveries]);
 
   const customerOrders = useMemo(
     () =>

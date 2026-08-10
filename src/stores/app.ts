@@ -15,8 +15,14 @@ interface AppState {
   deliveries: DeliveryOrder[];
   notifications: Notification[];
   driverOnline: boolean;
+  /** True after zustand persist finishes loading from localStorage. */
+  hasHydrated: boolean;
+  setHasHydrated: (value: boolean) => void;
   setOrders: (orders: Order[]) => void;
   setDeliveries: (deliveries: DeliveryOrder[]) => void;
+  /** Merge server orders with any local-only orders (by id; server wins). */
+  mergeOrders: (orders: Order[]) => void;
+  mergeDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   assignDriver: (orderId: string, driverId: string) => void;
@@ -29,6 +35,13 @@ interface AppState {
   markAllNotificationsRead: (userId?: string) => void;
   addNotification: (n: Notification) => void;
   setDriverOnline: (online: boolean) => void;
+}
+
+function mergeById<T extends { id: string }>(local: T[], remote: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of local) map.set(item.id, item);
+  for (const item of remote) map.set(item.id, item);
+  return Array.from(map.values());
 }
 
 function notifyCustomer(
@@ -62,9 +75,15 @@ export const useAppStore = create<AppState>()(
       deliveries: [],
       notifications: [],
       driverOnline: false,
+      hasHydrated: false,
 
+      setHasHydrated: (value) => set({ hasHydrated: value }),
       setOrders: (orders) => set({ orders }),
       setDeliveries: (deliveries) => set({ deliveries }),
+      mergeOrders: (orders) =>
+        set((s) => ({ orders: mergeById(s.orders, orders) })),
+      mergeDeliveries: (deliveries) =>
+        set((s) => ({ deliveries: mergeById(s.deliveries, deliveries) })),
 
       addOrder: (order) => {
         const staff = useDataStore
@@ -364,13 +383,18 @@ export const useAppStore = create<AppState>()(
       setDriverOnline: (online) => set({ driverOnline: online }),
     }),
     {
-      // v3: do not persist orders/deliveries — those are shared via /api/orders.
-      // Persisting them caused admin boards to stay empty after localStorage rehydrate.
-      name: "island-coolers-app-v3",
+      // v4: cache orders locally so refresh doesn't blank the UI,
+      // then OrdersSync merges the shared server list after hydrate.
+      name: "island-coolers-app-v4",
       partialize: (state) => ({
+        orders: state.orders,
+        deliveries: state.deliveries,
         notifications: state.notifications,
         driverOnline: state.driverOnline,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

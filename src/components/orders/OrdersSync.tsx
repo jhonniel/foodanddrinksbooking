@@ -13,21 +13,37 @@ import { canAccessAdmin } from "@/lib/auth/config";
 import type { DeliveryOrder, Order } from "@/types";
 
 /**
- * Keeps the client order board in sync with the shared server store
- * so admin can process orders placed from any browser/session.
+ * Keeps the client order board in sync with the shared server store.
+ * Waits for localStorage rehydrate + auth so refresh does not wipe orders.
  */
 export function OrdersSync() {
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
+  const hasHydrated = useAppStore((s) => s.hasHydrated);
+  const mergeOrders = useAppStore((s) => s.mergeOrders);
+  const mergeDeliveries = useAppStore((s) => s.mergeDeliveries);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const addNotification = useAppStore((s) => s.addNotification);
   const notifiedAutoCancel = useRef(new Set<string>());
 
   useEffect(() => {
-    if (authInitializing || !user) return;
+    // Persist rehydrate can finish with hasHydrated still false if storage empty.
+    if (!hasHydrated) {
+      const t = window.setTimeout(() => {
+        if (!useAppStore.getState().hasHydrated) {
+          useAppStore.getState().setHasHydrated(true);
+        }
+      }, 50);
+      return () => window.clearTimeout(t);
+    }
+  }, [hasHydrated]);
+
+  useEffect(() => {
+    if (!hasHydrated || authInitializing || !user) return;
 
     let cancelled = false;
+    const isStaff = canAccessAdmin(user.role);
 
     const pull = async () => {
       try {
@@ -42,8 +58,26 @@ export function OrdersSync() {
           autoCancelled?: Order[];
         };
         if (cancelled) return;
-        if (Array.isArray(data.orders)) setOrders(data.orders);
-        if (Array.isArray(data.deliveries)) setDeliveries(data.deliveries);
+
+        if (Array.isArray(data.orders)) {
+          if (isStaff) {
+            // Staff board: server is the source of truth.
+            setOrders(data.orders);
+          } else {
+            // Customer: keep any local-only orders until server has them.
+            const mine = data.orders;
+            const localMine = useAppStore
+              .getState()
+              .orders.filter((o) => o.customer_id === user.id);
+            const serverIds = new Set(mine.map((o) => o.id));
+            const pendingLocal = localMine.filter((o) => !serverIds.has(o.id));
+            setOrders([...mine, ...pendingLocal]);
+          }
+        }
+        if (Array.isArray(data.deliveries)) {
+          if (isStaff) setDeliveries(data.deliveries);
+          else mergeDeliveries(data.deliveries);
+        }
 
         const newlyCancelled = (data.autoCancelled ?? []).filter(
           (o) =>
@@ -66,7 +100,7 @@ export function OrdersSync() {
               })
             );
             toast.error(template.body);
-          } else if (canAccessAdmin(user.role)) {
+          } else if (isStaff) {
             addNotification(
               createNotification({
                 userId: "staff",
@@ -98,7 +132,16 @@ export function OrdersSync() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user, authInitializing, setOrders, setDeliveries, addNotification]);
+  }, [
+    user,
+    authInitializing,
+    hasHydrated,
+    setOrders,
+    setDeliveries,
+    mergeOrders,
+    mergeDeliveries,
+    addNotification,
+  ]);
 
   return null;
 }
