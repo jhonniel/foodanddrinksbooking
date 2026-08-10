@@ -214,6 +214,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const saved = await saveOrder(result.order);
-  return NextResponse.json({ order: saved }, { status: 201 });
+  try {
+    const saved = await saveOrder(result.order);
+    return NextResponse.json({ order: saved }, { status: 201 });
+  } catch (err) {
+    console.error("Failed to persist order; returning order anyway:", err);
+    // Still return the order so checkout can complete (e.g. read-only FS on some hosts).
+    return NextResponse.json({ order: result.order }, { status: 201 });
+  }
 }

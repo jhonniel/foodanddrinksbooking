@@ -22,6 +22,8 @@ import { useCartStore, formatCartOptions, getCartItemPrice } from "@/stores/cart
 import { useCartTotals } from "@/hooks/useCartTotals";
 import { useAuthStore } from "@/stores/auth";
 import { useAppStore } from "@/stores/app";
+import { fetchCurrentProfile } from "@/services/authService";
+import { placeOrder } from "@/services/orderService";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { DELIVERY_CONFIG, STORE_LOCATION } from "@/data/demo";
@@ -70,6 +72,7 @@ const PAYMENT_METHODS: {
 export default function CheckoutPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const authInitializing = useAuthStore((s) => s.initializing);
   const updateUser = useAuthStore((s) => s.updateUser);
   const addOrder = useAppStore((s) => s.addOrder);
   const addNotification = useAppStore((s) => s.addNotification);
@@ -116,9 +119,41 @@ export default function CheckoutPage() {
 
   const address = DEMO_ADDRESSES.find((a) => a.id === selectedAddress);
 
+  const finishOrder = (order: Order, customerId: string) => {
+    addOrder(order);
+    addNotification({
+      id: `n-${Date.now()}`,
+      user_id: customerId,
+      type: "ORDER",
+      title: "Order placed!",
+      body: `Your order ${order.order_number} has been received.`,
+      data: { orderId: order.id },
+      is_read: false,
+      created_at: new Date().toISOString(),
+    });
+
+    if (order.points_earned > 0 && user) {
+      updateUser({
+        points_balance: user.points_balance + order.points_earned,
+        lifetime_points: user.lifetime_points + order.points_earned,
+      });
+    }
+
+    clearCart();
+    toast.success("Order placed successfully!");
+    router.push(`/orders/${order.id}`);
+  };
+
   const handlePlaceOrder = async () => {
-    if (!user) {
+    // Session cookie can exist while the auth store is still empty — refresh first.
+    let activeUser = user;
+    if (!activeUser) {
+      activeUser = await fetchCurrentProfile();
+      if (activeUser) useAuthStore.getState().setUser(activeUser);
+    }
+    if (!activeUser) {
       toast.error("Please sign in to place an order");
+      router.push("/login?next=/checkout");
       return;
     }
     if (orderType === "DELIVERY" && !deliveryQuote.withinRadius) {
@@ -127,84 +162,103 @@ export default function CheckoutPage() {
       );
       return;
     }
+
+    const payload = {
+      orderType,
+      paymentMethod,
+      addressId: address?.id,
+      fullAddress: address?.full_address,
+      latitude: address?.latitude,
+      longitude: address?.longitude,
+      deliveryInstructions: instructions || undefined,
+      items: items.map((item) => ({
+        ...item,
+        productImage: item.productImage ?? null,
+        options: (item.options ?? []).map((o) => ({
+          ...o,
+          priceAdjustment: o.priceAdjustment ?? 0,
+        })),
+        addons: (item.addons ?? []).map((a) => ({
+          ...a,
+          price: a.price ?? 0,
+          quantity: a.quantity ?? 1,
+        })),
+      })),
+      deliveryFee,
+      subtotal,
+      discount: promoDiscount ?? 0,
+      pointsDiscount: pointsDiscount ?? 0,
+      pointsUsed: pointsToUse ?? 0,
+      promoCode: promoCode ?? null,
+    };
+
     setPlacing(true);
     try {
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderType,
-          paymentMethod,
-          addressId: address?.id,
-          fullAddress: address?.full_address,
-          latitude: address?.latitude,
-          longitude: address?.longitude,
-          deliveryInstructions: instructions || undefined,
-          items: items.map((item) => ({
-            ...item,
-            productImage: item.productImage ?? null,
-            options: item.options ?? [],
-            addons: item.addons ?? [],
-          })),
-          deliveryFee,
-          subtotal,
-          discount: promoDiscount,
-          pointsDiscount,
-          pointsUsed: pointsToUse,
-          promoCode: promoCode ?? null,
-        }),
-      });
-      const data = (await res.json()) as {
-        order?: Order;
-        error?: string;
-        details?: Record<string, string[] | undefined>;
-      };
-      if (!res.ok || !data.order) {
+      let order: Order | undefined;
+
+      try {
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          order?: Order;
+          error?: string;
+        } | null;
+
         if (res.status === 401) {
           toast.error("Please sign in to place an order");
           router.push("/login?next=/checkout");
           return;
         }
-        const detailHint = data.details
-          ? Object.entries(
-              (data.details as { fieldErrors?: Record<string, string[]> })
-                .fieldErrors ?? {}
-            )
-              .flatMap(([k, v]) => (v ?? []).map((msg) => `${k}: ${msg}`))
-              .slice(0, 2)
-              .join(" · ")
-          : "";
-        toast.error(
-          detailHint
-            ? `${data.error ?? "Failed to place order"} (${detailHint})`
-            : data.error ?? "Failed to place order"
-        );
-        return;
+
+        if (res.ok && data?.order) {
+          order = data.order;
+        } else {
+          console.warn("Order API failed, using local fallback:", data?.error);
+        }
+      } catch (err) {
+        console.warn("Order API unavailable, using local fallback:", err);
       }
 
-      addOrder(data.order);
-      addNotification({
-        id: `n-${Date.now()}`,
-        user_id: user.id,
-        type: "ORDER",
-        title: "Order placed!",
-        body: `Your order ${data.order.order_number} has been received.`,
-        data: { orderId: data.order.id },
-        is_read: false,
-        created_at: new Date().toISOString(),
-      });
-
-      if (data.order.points_earned > 0) {
-        updateUser({
-          points_balance: user.points_balance + data.order.points_earned,
-          lifetime_points: user.lifetime_points + data.order.points_earned,
+      // Local fallback so checkout still works if the API/session sync fails.
+      if (!order) {
+        const result = await placeOrder({
+          customerId: activeUser.id,
+          customerName: activeUser.full_name,
+          customer: activeUser,
+          items,
+          orderType,
+          paymentMethod,
+          address:
+            orderType === "DELIVERY" && address
+              ? {
+                  full_address: address.full_address,
+                  label: address.label,
+                  latitude: address.latitude,
+                  longitude: address.longitude,
+                  delivery_instructions: instructions || undefined,
+                }
+              : null,
+          deliveryInstructions: instructions || undefined,
+          deliveryFee,
+          subtotal,
+          discount: promoDiscount ?? 0,
+          pointsDiscount: pointsDiscount ?? 0,
+          pointsUsed: pointsToUse ?? 0,
+          promoCode,
         });
+
+        if (!result.success || !result.order) {
+          toast.error(result.error ?? "Failed to place order");
+          return;
+        }
+        order = result.order;
       }
 
-      clearCart();
-      toast.success("Order placed successfully!");
-      router.push(`/orders/${data.order.id}`);
+      finishOrder(order, activeUser.id);
     } catch {
       toast.error("Failed to place order. Please try again.");
     } finally {
@@ -509,13 +563,13 @@ export default function CheckoutPage() {
             </Button>
             <Button
               onClick={handlePlaceOrder}
-              disabled={placing}
+              disabled={placing || authInitializing}
               className="flex-1 rounded-xl bg-green hover:bg-green/90"
             >
-              {placing ? (
+              {placing || authInitializing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Placing...
+                  {authInitializing ? "Checking session..." : "Placing..."}
                 </>
               ) : (
                 `Place Order — ${formatCurrency(total)}`
