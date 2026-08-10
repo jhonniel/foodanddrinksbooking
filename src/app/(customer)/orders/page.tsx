@@ -107,13 +107,15 @@ function OrderList({ orders }: { orders: Order[] }) {
 
 export default function OrdersPage() {
   const user = useAuthStore((s) => s.user);
+  const authInitializing = useAuthStore((s) => s.initializing);
   const allOrders = useAppStore((s) => s.orders);
+  const hasHydrated = useAppStore((s) => s.hasHydrated);
   const mergeOrders = useAppStore((s) => s.mergeOrders);
   const mergeDeliveries = useAppStore((s) => s.mergeDeliveries);
   const [tab, setTab] = useState("active");
 
   useEffect(() => {
-    if (!user) return;
+    if (!hasHydrated || authInitializing || !user) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -136,7 +138,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, mergeOrders, mergeDeliveries]);
+  }, [hasHydrated, authInitializing, user, mergeOrders, mergeDeliveries]);
 
   const customerOrders = useMemo(
     () =>

@@ -46,6 +46,7 @@ export const KANBAN_COLUMNS: { status: OrderStatus; label: string }[] = [
   { status: "ASSIGNED", label: "Assigned" },
   { status: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
   { status: "DELIVERED", label: "Delivered" },
+  { status: "CANCELLED", label: "Cancelled" },
 ];
 
 export const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {

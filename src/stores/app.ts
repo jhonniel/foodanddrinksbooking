@@ -383,9 +383,9 @@ export const useAppStore = create<AppState>()(
       setDriverOnline: (online) => set({ driverOnline: online }),
     }),
     {
-      // v4: cache orders locally so refresh doesn't blank the UI,
-      // then OrdersSync merges the shared server list after hydrate.
-      name: "island-coolers-app-v4",
+      // v5: cache orders for fast paint; admin/customer sync runs ONLY after
+      // hasHydrated so rehydrate cannot wipe a fresh server fetch.
+      name: "island-coolers-app-v5",
       partialize: (state) => ({
         orders: state.orders,
         deliveries: state.deliveries,

@@ -40,6 +40,8 @@ export function OrdersSync() {
   }, [hasHydrated]);
 
   useEffect(() => {
+    // Critical: never pull before persist rehydrate finishes, or an empty
+    // localStorage snapshot can overwrite a successful server fetch.
     if (!hasHydrated || authInitializing || !user) return;
 
     let cancelled = false;
@@ -61,7 +63,7 @@ export function OrdersSync() {
 
         if (Array.isArray(data.orders)) {
           if (isStaff) {
-            // Staff board: server is the source of truth.
+            // Staff board: always use the shared server list.
             setOrders(data.orders);
           } else {
             // Customer: keep any local-only orders until server has them.

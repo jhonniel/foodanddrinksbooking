@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Clock, Package, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -14,7 +15,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { KANBAN_COLUMNS, STATUS_ACTIONS } from "@/lib/constants";
-import { canAssignDrivers } from "@/lib/auth/config";
+import { canAccessAdmin, canAssignDrivers } from "@/lib/auth/config";
 import {
   formatCurrency,
   formatDateTime,
@@ -25,42 +26,69 @@ import { cn } from "@/lib/utils";
 
 export default function AdminOrdersPage() {
   const orders = useAppStore((s) => s.orders);
+  const hasHydrated = useAppStore((s) => s.hasHydrated);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const updateOrderStatus = useAppStore((s) => s.updateOrderStatus);
-  const role = useAuthStore((s) => s.user?.role);
+  const user = useAuthStore((s) => s.user);
+  const authInitializing = useAuthStore((s) => s.initializing);
+  const role = user?.role;
   const [selected, setSelected] = useState<Order | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const refreshOrders = async () => {
-    setRefreshing(true);
+  const refreshOrders = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setRefreshing(true);
     try {
       const res = await fetch("/api/orders", {
         cache: "no-store",
         credentials: "include",
       });
-      if (!res.ok) return;
+      if (res.status === 401) {
+        setLoadError("Session expired. Please sign in again.");
+        return;
+      }
+      if (!res.ok) {
+        setLoadError("Could not load orders from server.");
+        return;
+      }
       const data = (await res.json()) as {
         orders?: Order[];
         deliveries?: DeliveryOrder[];
       };
-      if (Array.isArray(data.orders)) setOrders(data.orders);
+      if (Array.isArray(data.orders)) {
+        setOrders(data.orders);
+        setLoadError(null);
+      }
       if (Array.isArray(data.deliveries)) setDeliveries(data.deliveries);
+    } catch {
+      setLoadError("Could not load orders from server.");
     } finally {
-      setRefreshing(false);
+      if (!opts?.silent) setRefreshing(false);
     }
   };
 
   useEffect(() => {
+    // Wait until persist rehydrate + auth finish, or a successful fetch
+    // gets wiped by empty localStorage hydration.
+    if (!hasHydrated || authInitializing || !user || !canAccessAdmin(user.role)) {
+      return;
+    }
+
     void refreshOrders();
+    const id = window.setInterval(() => void refreshOrders({ silent: true }), 3000);
+    return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasHydrated, authInitializing, user?.id, user?.role]);
 
   const handleAdvance = (order: Order) => {
     const action = STATUS_ACTIONS[order.status];
     if (!action || order.status === "READY") return;
     updateOrderStatus(order.id, action.next);
+    toast.success(`Order #${order.order_number} → ${action.next}`);
   };
+
+  const pendingCount = orders.filter((o) => o.status === "PENDING").length;
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem-4rem)] flex-col lg:h-dvh">
@@ -69,9 +97,12 @@ export default function AdminOrdersPage() {
           <div>
             <h1 className="text-xl font-bold text-navy sm:text-2xl">Orders</h1>
             <p className="text-sm text-muted-foreground">
-              {orders.length} order{orders.length === 1 ? "" : "s"} · swipe
-              columns to manage fulfillment
+              {orders.length} total · {pendingCount} new · swipe columns to
+              manage fulfillment
             </p>
+            {loadError && (
+              <p className="mt-1 text-sm text-red-600">{loadError}</p>
+            )}
           </div>
           <Button
             type="button"
@@ -79,7 +110,7 @@ export default function AdminOrdersPage() {
             size="sm"
             className="shrink-0 rounded-xl"
             onClick={() => void refreshOrders()}
-            disabled={refreshing}
+            disabled={refreshing || authInitializing}
           >
             <RefreshCw
               className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")}
