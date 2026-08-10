@@ -1,14 +1,24 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getClientIp, rateLimit } from "@/lib/security/rateLimit";
 import { checkoutSchema } from "@/schemas";
 import { placeOrder } from "@/services/orderService";
+import {
+  getSessionProfileFromRequest,
+  assertRole,
+} from "@/lib/auth/server";
+import { canAccessAdmin } from "@/lib/auth/config";
+import {
+  getOrdersSnapshot,
+  nextOrderNumber,
+  saveOrder,
+} from "@/lib/orders/localFileStore";
 import type { CartItem } from "@/types";
 
 const orderApiSchema = checkoutSchema.and(
   z.object({
-    customerId: z.string().min(1),
-    customerName: z.string().min(1),
+    customerId: z.string().min(1).optional(),
+    customerName: z.string().min(1).optional(),
     items: z
       .array(
         z.object({
@@ -49,7 +59,30 @@ const orderApiSchema = checkoutSchema.and(
   })
 );
 
-export async function POST(request: Request) {
+export async function GET(request: NextRequest) {
+  const profile = await getSessionProfileFromRequest(request);
+  if (!assertRole(profile, "authenticated")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { orders, deliveries } = await getOrdersSnapshot();
+  const isStaff = canAccessAdmin(profile.role);
+
+  if (isStaff) {
+    return NextResponse.json({ orders, deliveries });
+  }
+
+  return NextResponse.json({
+    orders: orders.filter((o) => o.customer_id === profile.id),
+    deliveries: deliveries.filter((d) =>
+      orders.some(
+        (o) => o.id === d.order_id && o.customer_id === profile.id
+      )
+    ),
+  });
+}
+
+export async function POST(request: NextRequest) {
   const ip = getClientIp(request);
   const limited = rateLimit(`orders:${ip}`, 10, 60_000);
   if (!limited.success) {
@@ -57,6 +90,11 @@ export async function POST(request: Request) {
       { error: "Too many order attempts. Please wait a moment." },
       { status: 429 }
     );
+  }
+
+  const profile = await getSessionProfileFromRequest(request);
+  if (!assertRole(profile, "authenticated")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   let body: unknown;
@@ -78,9 +116,12 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
+  const orderNumber = await nextOrderNumber();
+
   const result = await placeOrder({
-    customerId: data.customerId,
-    customerName: data.customerName,
+    customerId: profile.id,
+    customerName: profile.full_name,
+    customer: profile,
     items: data.items as CartItem[],
     orderType: data.orderType,
     paymentMethod: data.paymentMethod,
@@ -101,6 +142,7 @@ export async function POST(request: Request) {
     pointsUsed: data.pointsUsed,
     promoCode: data.promoCode,
     idempotencyKey: data.idempotencyKey,
+    orderNumber,
   });
 
   if (!result.success || !result.order) {
@@ -110,5 +152,6 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ order: result.order }, { status: 201 });
+  const saved = await saveOrder(result.order);
+  return NextResponse.json({ order: saved }, { status: 201 });
 }

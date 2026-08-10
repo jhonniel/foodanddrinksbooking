@@ -22,7 +22,6 @@ import { useCartStore, formatCartOptions, getCartItemPrice } from "@/stores/cart
 import { useCartTotals } from "@/hooks/useCartTotals";
 import { useAuthStore } from "@/stores/auth";
 import { useAppStore } from "@/stores/app";
-import { placeOrder } from "@/services/orderService";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { DELIVERY_CONFIG, STORE_LOCATION } from "@/data/demo";
@@ -31,7 +30,7 @@ import {
   formatDeliveryRateLabel,
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
-import type { PaymentMethod } from "@/types";
+import type { Order, PaymentMethod } from "@/types";
 
 const DEMO_ADDRESSES = [
   {
@@ -129,59 +128,60 @@ export default function CheckoutPage() {
       return;
     }
     setPlacing(true);
-    const result = await placeOrder({
-      customerId: user.id,
-      customerName: user.full_name,
-      items,
-      orderType,
-      paymentMethod,
-      address:
-        orderType === "DELIVERY" && address
-          ? {
-              full_address: address.full_address,
-              label: address.label,
-              latitude: address.latitude,
-              longitude: address.longitude,
-              delivery_instructions: instructions || undefined,
-            }
-          : null,
-      deliveryInstructions: instructions || undefined,
-      deliveryFee,
-      subtotal,
-      discount: promoDiscount,
-      pointsDiscount,
-      pointsUsed: pointsToUse,
-      promoCode,
-    });
-    setPlacing(false);
-
-    if (!result.success || !result.order) {
-      toast.error(result.error ?? "Failed to place order");
-      return;
-    }
-
-    addOrder(result.order);
-    addNotification({
-      id: `n-${Date.now()}`,
-      user_id: user.id,
-      type: "ORDER",
-      title: "Order placed!",
-      body: `Your order ${result.order.order_number} has been received.`,
-      data: { orderId: result.order.id },
-      is_read: false,
-      created_at: new Date().toISOString(),
-    });
-
-    if (result.order.points_earned > 0) {
-      updateUser({
-        points_balance: user.points_balance + result.order.points_earned,
-        lifetime_points: user.lifetime_points + result.order.points_earned,
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderType,
+          paymentMethod,
+          addressId: address?.id,
+          fullAddress: address?.full_address,
+          latitude: address?.latitude,
+          longitude: address?.longitude,
+          deliveryInstructions: instructions || undefined,
+          items,
+          deliveryFee,
+          subtotal,
+          discount: promoDiscount,
+          pointsDiscount,
+          pointsUsed: pointsToUse,
+          promoCode,
+        }),
       });
-    }
+      const data = (await res.json()) as { order?: Order; error?: string };
+      if (!res.ok || !data.order) {
+        toast.error(data.error ?? "Failed to place order");
+        return;
+      }
 
-    clearCart();
-    toast.success("Order placed successfully!");
-    router.push(`/orders/${result.order.id}`);
+      addOrder(data.order);
+      addNotification({
+        id: `n-${Date.now()}`,
+        user_id: user.id,
+        type: "ORDER",
+        title: "Order placed!",
+        body: `Your order ${data.order.order_number} has been received.`,
+        data: { orderId: data.order.id },
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+
+      if (data.order.points_earned > 0) {
+        updateUser({
+          points_balance: user.points_balance + data.order.points_earned,
+          lifetime_points: user.lifetime_points + data.order.points_earned,
+        });
+      }
+
+      clearCart();
+      toast.success("Order placed successfully!");
+      router.push(`/orders/${data.order.id}`);
+    } catch {
+      toast.error("Failed to place order. Please try again.");
+    } finally {
+      setPlacing(false);
+    }
   };
 
   return (

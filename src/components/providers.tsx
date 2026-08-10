@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OfflineBanner } from "@/components/shared/OfflineBanner";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { OrdersSync } from "@/components/orders/OrdersSync";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -24,6 +25,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={client}>
       <TooltipProvider>
         <AuthProvider>
+          <OrdersSync />
           <OfflineBanner />
           {children}
           <Toaster position="top-center" richColors closeButton />

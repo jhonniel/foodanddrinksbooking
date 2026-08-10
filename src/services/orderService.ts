@@ -5,6 +5,7 @@ import type {
   PaymentMethod,
   OrderType,
   AddressSnapshot,
+  Profile,
 } from "@/types";
 import { getCartItemPrice } from "@/stores/cart";
 import { processPayment } from "@/lib/payments/provider";
@@ -14,6 +15,7 @@ import { LOYALTY_SETTINGS } from "@/data/demo";
 export interface PlaceOrderInput {
   customerId: string;
   customerName: string;
+  customer?: Profile | null;
   items: CartItem[];
   orderType: OrderType;
   paymentMethod: PaymentMethod;
@@ -26,6 +28,8 @@ export interface PlaceOrderInput {
   pointsUsed: number;
   promoCode?: string | null;
   idempotencyKey?: string;
+  /** When provided (server), use persisted sequence instead of in-memory counter. */
+  orderNumber?: string;
 }
 
 export interface PlaceOrderResult {
@@ -61,7 +65,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     }
 
     const orderId = `ord-${Date.now()}`;
-    const orderNumber = `IC${orderSeq++}`;
+    const orderNumber = input.orderNumber || `IC${orderSeq++}`;
     const now = new Date().toISOString();
     const pointsEarned = Math.floor(total * LOYALTY_SETTINGS.points_per_peso);
 
@@ -123,6 +127,21 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       created_at: now,
       updated_at: now,
       items,
+      customer:
+        input.customer ||
+        ({
+          id: input.customerId,
+          email: "",
+          full_name: input.customerName,
+          phone: null,
+          avatar_url: null,
+          role: "CUSTOMER",
+          is_active: true,
+          points_balance: 0,
+          lifetime_points: 0,
+          created_at: now,
+          updated_at: now,
+        } satisfies Profile),
     };
 
     // Attach delivery PIN for delivery orders (stored conceptually)

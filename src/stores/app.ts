@@ -15,6 +15,8 @@ interface AppState {
   deliveries: DeliveryOrder[];
   notifications: Notification[];
   driverOnline: boolean;
+  setOrders: (orders: Order[]) => void;
+  setDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   assignDriver: (orderId: string, driverId: string) => void;
@@ -60,6 +62,9 @@ export const useAppStore = create<AppState>()(
       deliveries: [],
       notifications: [],
       driverOnline: false,
+
+      setOrders: (orders) => set({ orders }),
+      setDeliveries: (deliveries) => set({ deliveries }),
 
       addOrder: (order) => {
         const staff = useDataStore
@@ -130,6 +135,14 @@ export const useAppStore = create<AppState>()(
             ? [...notifs, ...s.notifications]
             : s.notifications,
         }));
+
+        void fetch(`/api/orders/${orderId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }).catch(() => {
+          /* keep optimistic local update if network fails */
+        });
       },
 
       assignDriver: (orderId, driverId) => {
@@ -226,6 +239,18 @@ export const useAppStore = create<AppState>()(
           ],
           notifications: [...notifs, ...s.notifications],
         }));
+
+        void fetch(`/api/orders/${orderId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            driverId: assignedDriverId,
+            driverName,
+            driverProfileId: driverRecord?.profile_id,
+          }),
+        }).catch(() => {
+          /* keep optimistic local update if network fails */
+        });
       },
 
       updateDeliveryStatus: (deliveryId, status, extras = {}) => {
