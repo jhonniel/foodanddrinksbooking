@@ -10,20 +10,10 @@ import {
   isSupabaseConfigured,
 } from "@/lib/auth/config";
 import {
-  findOrderById,
-  updateOrderStatusInStore,
-  updateOrderFields,
-  upsertDelivery,
-  getOrdersSnapshot,
-} from "@/lib/orders/localFileStore";
-import {
   assignDriverInSupabase,
   fetchOrderByIdFromSupabase,
   updateOrderStatusInSupabase,
 } from "@/lib/supabase/orders";
-import { STORE_LOCATION } from "@/data/demo";
-import { calculateDeliveryFee } from "@/lib/delivery/pricing";
-import type { DeliveryOrder, OrderStatus } from "@/types";
 
 const patchSchema = z.object({
   status: z
@@ -45,49 +35,47 @@ const patchSchema = z.object({
   driverProfileId: z.string().optional(),
 });
 
+function supabaseRequired() {
+  return NextResponse.json(
+    {
+      error:
+        "Supabase is required for orders. Set NEXT_PUBLIC_SUPABASE_URL and keys.",
+    },
+    { status: 503 }
+  );
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  if (!isSupabaseConfigured()) return supabaseRequired();
+
   const profile = await getSessionProfileFromRequest(request);
   if (!assertRole(profile, "authenticated")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await context.params;
-
-  if (isSupabaseConfigured()) {
-    const loaded = await fetchOrderByIdFromSupabase(id);
-    if (!loaded) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
-    if (
-      !canAccessAdmin(profile.role) &&
-      loaded.order.customer_id !== profile.id
-    ) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return NextResponse.json(loaded);
-  }
-
-  const order = await findOrderById(id);
-  if (!order) {
+  const loaded = await fetchOrderByIdFromSupabase(id);
+  if (!loaded) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
-
-  if (!canAccessAdmin(profile.role) && order.customer_id !== profile.id) {
+  if (
+    !canAccessAdmin(profile.role) &&
+    loaded.order.customer_id !== profile.id
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-
-  const { deliveries } = await getOrdersSnapshot();
-  const delivery = deliveries.find((d) => d.order_id === id) ?? null;
-  return NextResponse.json({ order, delivery });
+  return NextResponse.json(loaded);
 }
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  if (!isSupabaseConfigured()) return supabaseRequired();
+
   const profile = await getSessionProfileFromRequest(request);
   if (!assertRole(profile, "staff")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -113,54 +101,7 @@ export async function PATCH(
     );
   }
 
-  const { status, driverId, driverName, driverProfileId } = parsed.data;
-
-  if (isSupabaseConfigured()) {
-    if (driverId) {
-      if (!canAssignDrivers(profile.role)) {
-        return NextResponse.json(
-          { error: "You do not have permission to assign drivers." },
-          { status: 403 }
-        );
-      }
-      const result = await assignDriverInSupabase({
-        orderId: id,
-        driverId,
-        driverProfileId,
-      });
-      if (result.error || !result.order) {
-        return NextResponse.json(
-          { error: result.error || "Failed to assign driver." },
-          { status: 400 }
-        );
-      }
-      return NextResponse.json({
-        order: result.order,
-        delivery: result.delivery,
-      });
-    }
-
-    if (status) {
-      const result = await updateOrderStatusInSupabase(id, status);
-      if (result.error || !result.order) {
-        return NextResponse.json(
-          { error: result.error || "Failed to update order." },
-          { status: 400 }
-        );
-      }
-      return NextResponse.json({ order: result.order });
-    }
-
-    return NextResponse.json(
-      { error: "Provide status or driverId to update." },
-      { status: 400 }
-    );
-  }
-
-  const order = await findOrderById(id);
-  if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
+  const { status, driverId, driverProfileId } = parsed.data;
 
   if (driverId) {
     if (!canAssignDrivers(profile.role)) {
@@ -169,68 +110,32 @@ export async function PATCH(
         { status: 403 }
       );
     }
-
-    const now = new Date().toISOString();
-    const lat = order.delivery_address_snapshot?.latitude;
-    const lng = order.delivery_address_snapshot?.longitude;
-    const quote =
-      lat != null && lng != null
-        ? calculateDeliveryFee({ lat, lng }, order.subtotal ?? 0)
-        : null;
-
-    const delivery: DeliveryOrder = {
-      id: `del-${Date.now()}`,
-      order_id: id,
-      driver_id: driverId,
-      status: "ASSIGNED",
-      customer_latitude: lat ?? null,
-      customer_longitude: lng ?? null,
-      store_latitude: STORE_LOCATION.lat,
-      store_longitude: STORE_LOCATION.lng,
-      estimated_arrival: new Date(
-        Date.now() + (quote?.estimatedMinutes ?? 30) * 60000
-      ).toISOString(),
-      distance_km: quote?.distanceKm ?? null,
-      delivery_fee: order.delivery_fee ?? quote?.fee ?? 0,
-      delivery_pin: String(Math.floor(1000 + Math.random() * 9000)),
-      proof_photo_url: null,
-      assigned_at: now,
-      accepted_at: null,
-      picked_up_at: null,
-      arrived_at: null,
-      delivered_at: null,
-      created_at: now,
-      updated_at: now,
-    };
-
-    await upsertDelivery(delivery);
-    const updated = await updateOrderFields(id, {
-      driver_id: driverId,
-      status: "ASSIGNED" as OrderStatus,
-      updated_at: now,
-      driver: driverProfileId
-        ? {
-            id: driverProfileId,
-            email: "",
-            full_name: driverName || "Driver",
-            phone: null,
-            avatar_url: null,
-            role: "DRIVER",
-            is_active: true,
-            points_balance: 0,
-            lifetime_points: 0,
-            created_at: now,
-            updated_at: now,
-          }
-        : undefined,
+    const result = await assignDriverInSupabase({
+      orderId: id,
+      driverId,
+      driverProfileId,
     });
-
-    return NextResponse.json({ order: updated, delivery });
+    if (result.error || !result.order) {
+      return NextResponse.json(
+        { error: result.error || "Failed to assign driver." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({
+      order: result.order,
+      delivery: result.delivery,
+    });
   }
 
   if (status) {
-    const updated = await updateOrderStatusInStore(id, status);
-    return NextResponse.json({ order: updated });
+    const result = await updateOrderStatusInSupabase(id, status);
+    if (result.error || !result.order) {
+      return NextResponse.json(
+        { error: result.error || "Failed to update order." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ order: result.order });
   }
 
   return NextResponse.json(

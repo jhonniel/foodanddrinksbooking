@@ -383,12 +383,11 @@ export const useAppStore = create<AppState>()(
       setDriverOnline: (online) => set({ driverOnline: online }),
     }),
     {
-      // v5: cache orders for fast paint; admin/customer sync runs ONLY after
-      // hasHydrated so rehydrate cannot wipe a fresh server fetch.
-      name: "island-coolers-app-v5",
+      // v6: do not persist orders/deliveries — Supabase (via /api/orders) is
+      // the source of truth. Persisting them caused ghost customer orders that
+      // never existed in admin.
+      name: "island-coolers-app-v6",
       partialize: (state) => ({
-        orders: state.orders,
-        deliveries: state.deliveries,
         notifications: state.notifications,
         driverOnline: state.driverOnline,
       }),

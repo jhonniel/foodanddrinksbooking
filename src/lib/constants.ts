@@ -44,7 +44,9 @@ export const KANBAN_COLUMNS: { status: OrderStatus; label: string }[] = [
   { status: "PREPARING", label: "Preparing" },
   { status: "READY", label: "Ready" },
   { status: "ASSIGNED", label: "Assigned" },
+  { status: "PICKED_UP", label: "Picked Up" },
   { status: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
+  { status: "ARRIVED", label: "Arrived" },
   { status: "DELIVERED", label: "Delivered" },
   { status: "CANCELLED", label: "Cancelled" },
 ];

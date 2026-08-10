@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getClientIp, rateLimit } from "@/lib/security/rateLimit";
-import { placeOrder } from "@/services/orderService";
 import {
   getSessionProfileFromRequest,
   assertRole,
 } from "@/lib/auth/server";
 import { canAccessAdmin, isSupabaseConfigured } from "@/lib/auth/config";
-import {
-  getOrdersSnapshot,
-  nextOrderNumber,
-  saveOrder,
-} from "@/lib/orders/localFileStore";
 import {
   createOrderInSupabase,
   fetchOrdersFromSupabase,
@@ -123,54 +117,54 @@ function toCartItems(
   }));
 }
 
+function supabaseRequiredResponse() {
+  return NextResponse.json(
+    {
+      error:
+        "Supabase is required for orders. Set NEXT_PUBLIC_SUPABASE_URL, anon/publishable key, and SUPABASE_SERVICE_ROLE_KEY.",
+      orders: [],
+      deliveries: [],
+      autoCancelled: [],
+    },
+    { status: 503 }
+  );
+}
+
 export async function GET(request: NextRequest) {
   try {
+    if (!isSupabaseConfigured()) {
+      return supabaseRequiredResponse();
+    }
+
     const profile = await getSessionProfileFromRequest(request);
     if (!assertRole(profile, "authenticated")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const isStaff = canAccessAdmin(profile.role);
+    const snapshot = await fetchOrdersFromSupabase(
+      isStaff ? undefined : { customerId: profile.id }
+    );
 
-    if (isSupabaseConfigured()) {
-      const snapshot = await fetchOrdersFromSupabase(
-        isStaff ? undefined : { customerId: profile.id }
+    if (!snapshot) {
+      return NextResponse.json(
+        {
+          error:
+            "Could not load orders from Supabase. Check SUPABASE_SERVICE_ROLE_KEY and that bootstrap.sql was run.",
+          orders: [],
+          deliveries: [],
+          autoCancelled: [],
+        },
+        { status: 502 }
       );
-      if (!snapshot) {
-        return NextResponse.json(
-          {
-            error:
-              "Could not load orders from Supabase. Check service role key and that bootstrap.sql was run.",
-            orders: [],
-            deliveries: [],
-            autoCancelled: [],
-          },
-          { status: 502 }
-        );
-      }
-      return NextResponse.json(snapshot);
     }
 
-    const { orders, deliveries, autoCancelled } = await getOrdersSnapshot();
-
-    if (isStaff) {
-      return NextResponse.json({ orders, deliveries, autoCancelled });
-    }
-
-    return NextResponse.json({
-      orders: orders.filter((o) => o.customer_id === profile.id),
-      deliveries: deliveries.filter((d) =>
-        orders.some(
-          (o) => o.id === d.order_id && o.customer_id === profile.id
-        )
-      ),
-      autoCancelled: autoCancelled.filter((o) => o.customer_id === profile.id),
-    });
+    return NextResponse.json(snapshot);
   } catch (err) {
     console.error("GET /api/orders failed:", err);
     return NextResponse.json(
       {
-        error: "Failed to read orders store.",
+        error: "Failed to load orders from Supabase.",
         orders: [],
         deliveries: [],
         autoCancelled: [],
@@ -181,6 +175,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      {
+        error:
+          "Supabase is required for orders. Set NEXT_PUBLIC_SUPABASE_URL, anon/publishable key, and SUPABASE_SERVICE_ROLE_KEY.",
+      },
+      { status: 503 }
+    );
+  }
+
   const ip = getClientIp(request);
   const limited = rateLimit(`orders:${ip}`, 60, 60_000);
   if (!limited.success) {
@@ -228,35 +232,7 @@ export async function POST(request: NextRequest) {
         }
       : null;
 
-  if (isSupabaseConfigured()) {
-    const created = await createOrderInSupabase({
-      customer: profile,
-      items,
-      orderType: data.orderType as OrderType,
-      paymentMethod: data.paymentMethod as PaymentMethod,
-      address,
-      deliveryInstructions: data.deliveryInstructions || undefined,
-      deliveryFee: data.deliveryFee,
-      subtotal: data.subtotal,
-      discount: data.discount,
-      pointsDiscount: data.pointsDiscount,
-      pointsUsed: data.pointsUsed,
-      idempotencyKey: data.idempotencyKey,
-    });
-
-    if (!created.order) {
-      return NextResponse.json(
-        { error: created.error || "Failed to place order in Supabase." },
-        { status: 400 }
-      );
-    }
-    return NextResponse.json({ order: created.order }, { status: 201 });
-  }
-
-  const orderNumber = await nextOrderNumber();
-  const result = await placeOrder({
-    customerId: profile.id,
-    customerName: profile.full_name,
+  const created = await createOrderInSupabase({
     customer: profile,
     items,
     orderType: data.orderType as OrderType,
@@ -268,23 +244,15 @@ export async function POST(request: NextRequest) {
     discount: data.discount,
     pointsDiscount: data.pointsDiscount,
     pointsUsed: data.pointsUsed,
-    promoCode: data.promoCode,
     idempotencyKey: data.idempotencyKey,
-    orderNumber,
   });
 
-  if (!result.success || !result.order) {
+  if (!created.order) {
     return NextResponse.json(
-      { error: result.error || "Failed to place order." },
+      { error: created.error || "Failed to place order in Supabase." },
       { status: 400 }
     );
   }
 
-  try {
-    const saved = await saveOrder(result.order);
-    return NextResponse.json({ order: saved }, { status: 201 });
-  } catch (err) {
-    console.error("Failed to persist order; returning order anyway:", err);
-    return NextResponse.json({ order: result.order }, { status: 201 });
-  }
+  return NextResponse.json({ order: created.order }, { status: 201 });
 }

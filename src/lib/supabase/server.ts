@@ -8,12 +8,17 @@ import {
   isSupabaseConfigured,
 } from "@/lib/auth/config";
 
-/** Service-role or anon client for privileged server ops (no user cookies). */
+/**
+ * Privileged server client. Prefers the service role key so writes bypass RLS.
+ * Falls back to the anon key only when the service role is unset (read paths
+ * that still work under public policies).
+ */
 export async function createServerClient() {
   if (!isSupabaseConfigured()) return null;
 
   const url = getSupabaseUrl();
   const key = getSupabaseServiceRoleKey() || getSupabaseAnonKey();
+  if (!key) return null;
 
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

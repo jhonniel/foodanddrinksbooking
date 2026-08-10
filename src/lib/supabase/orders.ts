@@ -38,13 +38,15 @@ function isUuid(value: string): boolean {
 }
 
 /**
- * Prefer service role (bypasses RLS). If missing, use the logged-in user's
- * cookie session so staff/customer RLS policies still work.
+ * Prefer service role (bypasses RLS) so every order read/write hits Supabase
+ * reliably for admin + customer. Fall back to the cookie session only when
+ * the service role key is missing.
  */
 async function getOrdersClient() {
   if (!isSupabaseConfigured()) return null;
   if (getSupabaseServiceRoleKey()) {
-    return createServerClient();
+    const admin = await createServerClient();
+    if (admin) return admin;
   }
   return createBrowserLikeServerClient();
 }
@@ -277,15 +279,29 @@ async function resolveProductId(
   client: NonNullable<Awaited<ReturnType<typeof getOrdersClient>>>,
   item: CartItem
 ): Promise<string | null> {
-  if (isUuid(item.productId)) return item.productId;
+  if (isUuid(item.productId)) {
+    const { data } = await client
+      .from("products")
+      .select("id")
+      .eq("id", item.productId)
+      .maybeSingle();
+    if (data?.id) return data.id as string;
+  }
 
-  const { data } = await client
+  const exact = await client
     .from("products")
     .select("id")
     .eq("name", item.productName)
     .maybeSingle();
+  if (exact.data?.id) return exact.data.id as string;
 
-  return (data?.id as string | undefined) ?? null;
+  const fuzzy = await client
+    .from("products")
+    .select("id")
+    .ilike("name", item.productName)
+    .limit(1)
+    .maybeSingle();
+  return (fuzzy.data?.id as string | undefined) ?? null;
 }
 
 export async function createOrderInSupabase(input: {
@@ -305,12 +321,37 @@ export async function createOrderInSupabase(input: {
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured." };
   }
+  if (!getSupabaseServiceRoleKey()) {
+    return {
+      error:
+        "SUPABASE_SERVICE_ROLE_KEY is required so orders are saved to Supabase for admin.",
+    };
+  }
   const client = await getOrdersClient();
   if (!client) return { error: "Supabase client unavailable." };
 
   if (!input.items.length) return { error: "Your cart is empty." };
+  if (!isUuid(input.customer.id)) {
+    return {
+      error:
+        "Your account is not linked to Supabase. Sign out and sign in again.",
+    };
+  }
 
   const idempotencyKey = input.idempotencyKey || generateIdempotencyKey();
+
+  const { data: existing } = await client
+    .from("orders")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing?.id) {
+    const loaded = await fetchOrderByIdFromSupabase(existing.id as string);
+    if (loaded) {
+      return { order: { ...loaded.order, customer: input.customer } };
+    }
+  }
+
   const total = Math.max(
     0,
     input.subtotal +

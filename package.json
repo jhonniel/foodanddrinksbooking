@@ -9,6 +9,7 @@
     "lint": "eslint",
     "seed:users": "node scripts/seed-users.mjs",
     "seed:supabase": "node scripts/seed-supabase-users.mjs",
+    "migrate:orders": "node scripts/migrate-local-orders-to-supabase.mjs",
     "vercel:env": "node scripts/vercel-env-checklist.mjs"
   },
   "dependencies": {

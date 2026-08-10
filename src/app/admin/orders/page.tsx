@@ -36,6 +36,7 @@ export default function AdminOrdersPage() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const refreshOrders = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setRefreshing(true);
@@ -108,6 +109,22 @@ export default function AdminOrdersPage() {
   };
 
   const pendingCount = orders.filter((o) => o.status === "PENDING").length;
+  const cancelledCount = orders.filter((o) => o.status === "CANCELLED").length;
+  const normalizedQuery = query.trim().toLowerCase().replace(/^#/, "");
+  const visibleOrders = normalizedQuery
+    ? orders.filter((o) => {
+        const hay = [
+          o.order_number,
+          o.customer?.full_name,
+          o.customer?.email,
+          o.status,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(normalizedQuery);
+      })
+    : orders;
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem-4rem)] flex-col lg:h-dvh">
@@ -116,8 +133,9 @@ export default function AdminOrdersPage() {
           <div>
             <h1 className="text-xl font-bold text-navy sm:text-2xl">Orders</h1>
             <p className="text-sm text-muted-foreground">
-              {orders.length} total · {pendingCount} new · swipe columns to
-              manage fulfillment
+              {orders.length} total · {pendingCount} new
+              {cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""} ·
+              swipe right for later columns
             </p>
             {loadError && (
               <p className="mt-1 text-sm text-red-600">
@@ -144,12 +162,31 @@ export default function AdminOrdersPage() {
             Refresh
           </Button>
         </div>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search order #, customer…"
+          className="mt-3 w-full max-w-md rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none ring-sky/30 focus:ring-2"
+        />
+        {normalizedQuery && (
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Showing {visibleOrders.length} match
+            {visibleOrders.length === 1 ? "" : "es"} for “{query.trim()}”
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 sm:p-4 lg:p-6 hide-scrollbar">
         <div className="flex h-full min-w-max gap-3 snap-x snap-mandatory sm:gap-4">
           {KANBAN_COLUMNS.map(({ status, label }) => {
-            const columnOrders = orders.filter((o) => o.status === status);
+            const columnOrders = visibleOrders
+              .filter((o) => o.status === status)
+              .sort((a, b) =>
+                b.order_number.localeCompare(a.order_number, undefined, {
+                  numeric: true,
+                })
+              );
             return (
               <div
                 key={status}

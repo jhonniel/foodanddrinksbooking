@@ -23,8 +23,6 @@ import { useCartTotals } from "@/hooks/useCartTotals";
 import { useAuthStore } from "@/stores/auth";
 import { useAppStore } from "@/stores/app";
 import { fetchCurrentProfile } from "@/services/authService";
-import { placeOrder } from "@/services/orderService";
-import { isSupabaseConfigured } from "@/lib/auth/config";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { DELIVERY_CONFIG, STORE_LOCATION } from "@/data/demo";
@@ -195,92 +193,34 @@ export default function CheckoutPage() {
 
     setPlacing(true);
     try {
-      let order: Order | undefined;
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        order?: Order;
+        error?: string;
+      } | null;
 
-      try {
-        const res = await fetch("/api/orders", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = (await res.json().catch(() => null)) as {
-          order?: Order;
-          error?: string;
-        } | null;
-
-        if (res.status === 401) {
-          toast.error("Please sign in to place an order");
-          router.push("/login?next=/checkout");
-          return;
-        }
-
-        if (res.ok && data?.order) {
-          order = data.order;
-        } else if (isSupabaseConfigured()) {
-          // With Supabase, a local-only order will vanish on refresh / admin sync.
-          toast.error(
-            data?.error ||
-              "Could not save order to Supabase. Check catalog products and try again."
-          );
-          return;
-        } else {
-          console.warn("Order API failed, using local fallback:", data?.error);
-        }
-      } catch (err) {
-        if (isSupabaseConfigured()) {
-          toast.error("Could not reach order API. Please try again.");
-          return;
-        }
-        console.warn("Order API unavailable, using local fallback:", err);
+      if (res.status === 401) {
+        toast.error("Please sign in to place an order");
+        router.push("/login?next=/checkout");
+        return;
       }
 
-      // Local fallback only when Supabase is not configured.
-      if (!order) {
-        const result = await placeOrder({
-          customerId: activeUser.id,
-          customerName: activeUser.full_name,
-          customer: activeUser,
-          items,
-          orderType,
-          paymentMethod,
-          address:
-            orderType === "DELIVERY" && address
-              ? {
-                  full_address: address.full_address,
-                  label: address.label,
-                  latitude: address.latitude,
-                  longitude: address.longitude,
-                  delivery_instructions: instructions || undefined,
-                }
-              : null,
-          deliveryInstructions: instructions || undefined,
-          deliveryFee,
-          subtotal,
-          discount: promoDiscount ?? 0,
-          pointsDiscount: pointsDiscount ?? 0,
-          pointsUsed: pointsToUse ?? 0,
-          promoCode,
-        });
-
-        if (!result.success || !result.order) {
-          toast.error(result.error ?? "Failed to place order");
-          return;
-        }
-        order = result.order;
-        void fetch("/api/orders/sync", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ order }),
-        }).catch(() => {
-          /* best-effort */
-        });
+      if (!res.ok || !data?.order) {
+        toast.error(
+          data?.error ||
+            "Could not save order to Supabase. Use products from the live menu and try again."
+        );
+        return;
       }
 
-      finishOrder(order, activeUser.id);
+      finishOrder(data.order, activeUser.id);
     } catch {
-      toast.error("Failed to place order. Please try again.");
+      toast.error("Could not reach order API. Please try again.");
     } finally {
       setPlacing(false);
     }

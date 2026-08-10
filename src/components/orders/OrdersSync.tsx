@@ -13,15 +13,13 @@ import { canAccessAdmin } from "@/lib/auth/config";
 import type { DeliveryOrder, Order } from "@/types";
 
 /**
- * Keeps the client order board in sync with the shared server store.
+ * Keeps the client order board in sync with Supabase via /api/orders.
  * Waits for localStorage rehydrate + auth so refresh does not wipe orders.
  */
 export function OrdersSync() {
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
   const hasHydrated = useAppStore((s) => s.hasHydrated);
-  const mergeOrders = useAppStore((s) => s.mergeOrders);
-  const mergeDeliveries = useAppStore((s) => s.mergeDeliveries);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const addNotification = useAppStore((s) => s.addNotification);
@@ -62,20 +60,8 @@ export function OrdersSync() {
         };
         if (cancelled) return;
 
-        if (Array.isArray(data.orders)) {
-          if (isStaff) {
-            // Staff board: shared server list is source of truth.
-            setOrders(data.orders);
-          } else {
-            // Customer: merge server rows in; never wipe local-only orders
-            // when Supabase returns [] (common before service role / failed insert).
-            mergeOrders(data.orders);
-          }
-        }
-        if (Array.isArray(data.deliveries)) {
-          if (isStaff) setDeliveries(data.deliveries);
-          else mergeDeliveries(data.deliveries);
-        }
+        if (Array.isArray(data.orders)) setOrders(data.orders);
+        if (Array.isArray(data.deliveries)) setDeliveries(data.deliveries);
 
         const newlyCancelled = (data.autoCancelled ?? []).filter(
           (o) =>
@@ -136,8 +122,6 @@ export function OrdersSync() {
     hasHydrated,
     setOrders,
     setDeliveries,
-    mergeOrders,
-    mergeDeliveries,
     addNotification,
   ]);
 
