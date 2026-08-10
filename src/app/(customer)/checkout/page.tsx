@@ -163,9 +163,23 @@ export default function CheckoutPage() {
       if (!res.ok || !data.order) {
         if (res.status === 401) {
           toast.error("Please sign in to place an order");
+          router.push("/login?next=/checkout");
           return;
         }
-        toast.error(data.error ?? "Failed to place order");
+        const detailHint = data.details
+          ? Object.entries(
+              (data.details as { fieldErrors?: Record<string, string[]> })
+                .fieldErrors ?? {}
+            )
+              .flatMap(([k, v]) => (v ?? []).map((msg) => `${k}: ${msg}`))
+              .slice(0, 2)
+              .join(" · ")
+          : "";
+        toast.error(
+          detailHint
+            ? `${data.error ?? "Failed to place order"} (${detailHint})`
+            : data.error ?? "Failed to place order"
+        );
         return;
       }
 
