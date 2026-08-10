@@ -363,6 +363,14 @@ export const useAppStore = create<AppState>()(
 
       setDriverOnline: (online) => set({ driverOnline: online }),
     }),
-    { name: "island-coolers-app-v2" }
+    {
+      // v3: do not persist orders/deliveries — those are shared via /api/orders.
+      // Persisting them caused admin boards to stay empty after localStorage rehydrate.
+      name: "island-coolers-app-v3",
+      partialize: (state) => ({
+        notifications: state.notifications,
+        driverOnline: state.driverOnline,
+      }),
+    }
   )
 );

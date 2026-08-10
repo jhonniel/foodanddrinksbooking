@@ -256,6 +256,15 @@ export default function CheckoutPage() {
           return;
         }
         order = result.order;
+        // Ensure admin board can see fallback orders too.
+        void fetch("/api/orders/sync", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order }),
+        }).catch(() => {
+          /* best-effort */
+        });
       }
 
       finishOrder(order, activeUser.id);

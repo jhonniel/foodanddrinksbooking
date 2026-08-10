@@ -15,23 +15,26 @@ import type { DeliveryOrder, Order } from "@/types";
 /**
  * Keeps the client order board in sync with the shared server store
  * so admin can process orders placed from any browser/session.
- * Also surfaces auto-cancel notices when a PENDING order times out.
  */
 export function OrdersSync() {
   const user = useAuthStore((s) => s.user);
+  const authInitializing = useAuthStore((s) => s.initializing);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const addNotification = useAppStore((s) => s.addNotification);
   const notifiedAutoCancel = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!user) return;
+    if (authInitializing || !user) return;
 
     let cancelled = false;
 
     const pull = async () => {
       try {
-        const res = await fetch("/api/orders", { cache: "no-store" });
+        const res = await fetch("/api/orders", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           orders?: Order[];
@@ -81,16 +84,21 @@ export function OrdersSync() {
     };
 
     void pull();
-    const id = window.setInterval(pull, 4000);
+    const id = window.setInterval(pull, 3000);
     const onFocus = () => void pull();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void pull();
+    };
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       cancelled = true;
       window.clearInterval(id);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user, setOrders, setDeliveries, addNotification]);
+  }, [user, authInitializing, setOrders, setDeliveries, addNotification]);
 
   return null;
 }

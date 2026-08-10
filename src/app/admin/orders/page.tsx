@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Clock, Package } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Clock, Package, RefreshCw } from "lucide-react";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -20,14 +20,41 @@ import {
   formatDateTime,
   relativeTime,
 } from "@/lib/utils/format";
-import type { Order } from "@/types";
+import type { DeliveryOrder, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
 export default function AdminOrdersPage() {
   const orders = useAppStore((s) => s.orders);
+  const setOrders = useAppStore((s) => s.setOrders);
+  const setDeliveries = useAppStore((s) => s.setDeliveries);
   const updateOrderStatus = useAppStore((s) => s.updateOrderStatus);
   const role = useAuthStore((s) => s.user?.role);
   const [selected, setSelected] = useState<Order | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshOrders = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/orders", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        orders?: Order[];
+        deliveries?: DeliveryOrder[];
+      };
+      if (Array.isArray(data.orders)) setOrders(data.orders);
+      if (Array.isArray(data.deliveries)) setDeliveries(data.deliveries);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAdvance = (order: Order) => {
     const action = STATUS_ACTIONS[order.status];
@@ -38,10 +65,28 @@ export default function AdminOrdersPage() {
   return (
     <div className="flex h-[calc(100dvh-3.5rem-4rem)] flex-col lg:h-dvh">
       <div className="border-b bg-white px-3 py-3 sm:px-4 sm:py-4 lg:px-8">
-        <h1 className="text-xl font-bold text-navy sm:text-2xl">Orders</h1>
-        <p className="text-sm text-muted-foreground">
-          Swipe columns to manage fulfillment
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-navy sm:text-2xl">Orders</h1>
+            <p className="text-sm text-muted-foreground">
+              {orders.length} order{orders.length === 1 ? "" : "s"} · swipe
+              columns to manage fulfillment
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 rounded-xl"
+            onClick={() => void refreshOrders()}
+            disabled={refreshing}
+          >
+            <RefreshCw
+              className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 sm:p-4 lg:p-6 hide-scrollbar">
