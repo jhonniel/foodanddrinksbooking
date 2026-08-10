@@ -4,14 +4,15 @@ import { normalizePhoneDigits } from "@/lib/auth/phone";
 export const loginSchema = z.object({
   email: z
     .string()
-    .min(3, "Enter your phone number or email")
+    .min(3, "Enter your mobile number")
     .refine((value) => {
       const trimmed = value.trim();
+      // Staff accounts still sign in with email; customers use mobile only.
       if (trimmed.includes("@")) {
         return z.string().email().safeParse(trimmed).success;
       }
       return normalizePhoneDigits(trimmed) != null;
-    }, "Enter a valid phone number or email"),
+    }, "Enter a valid mobile number"),
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 

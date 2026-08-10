@@ -164,9 +164,14 @@ export async function authenticateAccount(
   email: string,
   password: string
 ): Promise<{ account: StoredAccount; profile: Profile } | { error: string }> {
-  const account = await findAccountByEmail(email);
+  let account = await findAccountByEmail(email);
   if (!account) {
-    return { error: "Invalid phone number/email or password." };
+    // Customers sign in with mobile; resolve against stored phone digits.
+    const byPhone = await findAccountByPhone(email.split("@")[0] || email);
+    if (byPhone) account = byPhone;
+  }
+  if (!account) {
+    return { error: "Invalid mobile number or password." };
   }
   if (!account.is_active) {
     return { error: "This account has been deactivated." };
@@ -178,7 +183,7 @@ export async function authenticateAccount(
     };
   }
   if (!verifyPassword(password, account.password_hash)) {
-    return { error: "Invalid phone number/email or password." };
+    return { error: "Invalid mobile number or password." };
   }
   return { account, profile: toPublicProfile(account) };
 }

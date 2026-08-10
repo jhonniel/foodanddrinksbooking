@@ -40,6 +40,7 @@ function isMaintenanceBypassPath(pathname: string): boolean {
     pathname.startsWith("/register") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/settings") ||
+    pathname.startsWith("/api/cron") ||
     pathname.startsWith("/brand/") ||
     pathname.startsWith("/sounds/") ||
     pathname.startsWith("/_next") ||

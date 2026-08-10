@@ -4,7 +4,10 @@ import {
   isSupabaseConfigured,
   requiresSupabaseOnVercel,
 } from "@/lib/auth/config";
-import { resolveLoginEmail } from "@/lib/auth/phone";
+import {
+  normalizePhoneDigits,
+  resolveLoginEmail,
+} from "@/lib/auth/phone";
 import { setSessionCookie, jsonError, jsonOk } from "@/lib/auth/http";
 import {
   createBrowserLikeServerClient,
@@ -17,11 +20,37 @@ const bodySchema = z.object({
   password: z.string().min(1),
 });
 
+async function resolveAuthEmailFromPhone(
+  phoneInput: string
+): Promise<string | null> {
+  const digits = normalizePhoneDigits(phoneInput);
+  if (!digits) return null;
+
+  const mapped = resolveLoginEmail(phoneInput);
+  const admin = await createServerClient();
+  if (!admin) return mapped;
+
+  // Prefer profile phone match so older accounts still sign in with mobile.
+  const { data: rows } = await admin
+    .from("profiles")
+    .select("id, email, phone")
+    .not("phone", "is", null)
+    .limit(500);
+
+  const match = (rows ?? []).find((row) => {
+    const other = normalizePhoneDigits(row.phone ?? "");
+    return other != null && other === digits;
+  });
+
+  if (match?.email) return match.email.toLowerCase();
+  return mapped;
+}
+
 export async function POST(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return jsonError("Invalid phone number/email or password.");
+    return jsonError("Invalid mobile number or password.");
   }
 
   if (requiresSupabaseOnVercel()) {
@@ -31,10 +60,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const email = resolveLoginEmail(parsed.data.email);
+  const identifier = parsed.data.email.trim();
   const { password } = parsed.data;
+
+  let email: string | null;
+  if (identifier.includes("@")) {
+    email = resolveLoginEmail(identifier);
+  } else {
+    email = await resolveAuthEmailFromPhone(identifier);
+  }
+
   if (!email) {
-    return jsonError("Invalid phone number/email or password.", 401);
+    return jsonError("Invalid mobile number or password.", 401);
   }
 
   if (isSupabaseConfigured()) {
@@ -58,7 +95,7 @@ export async function POST(request: Request) {
           403
         );
       }
-      return jsonError("Invalid phone number/email or password.", 401);
+      return jsonError("Invalid mobile number or password.", 401);
     }
 
     // Prefer service-role profile read so RLS never blocks the active check
@@ -140,7 +177,10 @@ export async function POST(request: Request) {
 
   const result = await authenticateAccount(email, password);
   if ("error" in result) {
-    return jsonError(result.error, 401);
+    return jsonError(
+      result.error.replace(/phone number\/email/gi, "mobile number"),
+      401
+    );
   }
 
   const response = jsonOk({ profile: result.profile });
