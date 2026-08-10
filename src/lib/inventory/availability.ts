@@ -38,7 +38,7 @@ function ingredientLevel(
 
 /** Max units that can be made from recipes × current inventory. */
 export function getProductStockStatus(
-  product: Pick<Product, "recipes" | "name">,
+  product: Pick<Product, "recipes">,
   inventory: InventoryItem[]
 ): ProductStockStatus {
   const recipes = product.recipes ?? [];
