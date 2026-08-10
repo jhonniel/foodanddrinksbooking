@@ -66,10 +66,32 @@ export async function GET(
   if (!loaded) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
+
+  const isStaff = canAccessAdmin(profile.role);
+  const isCustomer = loaded.order.customer_id === profile.id;
+  const isAssignedDriver = loaded.order.driver_id === profile.id;
+  // delivery_orders.driver_id is drivers.id — allow if it matches this profile's driver row
+  let isDeliveryDriver = false;
   if (
-    !canAccessAdmin(profile.role) &&
-    loaded.order.customer_id !== profile.id
+    !isStaff &&
+    !isCustomer &&
+    !isAssignedDriver &&
+    loaded.delivery?.driver_id
   ) {
+    const { createServerClient } = await import("@/lib/supabase/server");
+    const admin = await createServerClient();
+    if (admin) {
+      const { data: driverRow } = await admin
+        .from("drivers")
+        .select("id")
+        .eq("profile_id", profile.id)
+        .eq("id", loaded.delivery.driver_id)
+        .maybeSingle();
+      isDeliveryDriver = Boolean(driverRow?.id);
+    }
+  }
+
+  if (!isStaff && !isCustomer && !isAssignedDriver && !isDeliveryDriver) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return NextResponse.json(loaded);

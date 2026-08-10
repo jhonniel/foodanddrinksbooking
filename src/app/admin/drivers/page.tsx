@@ -1,15 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bike, Plus, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
 import { createStaffAccount } from "@/services/authService";
+import {
+  fetchDriversFromApi,
+  setDriverActiveApi,
+} from "@/services/driverPresence";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EmptyState } from "@/components/shared/EmptyState";
 import type { DriverStatus } from "@/types";
 
 const VEHICLE_TYPES = ["Motorcycle", "Bicycle", "Car", "Scooter"] as const;
@@ -37,8 +43,7 @@ const statusStyles: Record<DriverStatus, string> = {
 
 export default function AdminDriversPage() {
   const drivers = useDataStore((s) => s.drivers);
-  const addDriver = useDataStore((s) => s.addDriver);
-
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -47,6 +52,27 @@ export default function AdminDriversPage() {
   const [vehicleType, setVehicleType] = useState<string>("Motorcycle");
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetchDriversFromApi();
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(
+            err instanceof Error ? err.message : "Could not load drivers."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const resetForm = () => {
     setFullName("");
@@ -96,27 +122,41 @@ export default function AdminDriversPage() {
       phone: trimmedPhone,
       role: "DRIVER",
     });
-    setSaving(false);
 
     if (!account.success || !account.profile) {
+      setSaving(false);
       toast.error(account.error ?? "Could not create driver account.");
       return;
     }
 
-    addDriver({
-      fullName: trimmedName,
-      email: trimmedEmail,
-      phone: trimmedPhone,
-      vehicleType,
-      vehicleNumber: vehicleNumber.trim() || undefined,
-      profileId: account.profile.id,
-    });
+    try {
+      await fetchDriversFromApi();
+    } catch {
+      /* list refresh best-effort */
+    }
+    setSaving(false);
 
     toast.success(
       `Driver "${trimmedName}" created. They can sign in with their email.`
     );
     setDialogOpen(false);
     resetForm();
+  };
+
+  const handleToggleActive = async (driverId: string, nextActive: boolean) => {
+    setTogglingId(driverId);
+    try {
+      await setDriverActiveApi(driverId, nextActive);
+      toast.success(
+        nextActive ? "Driver account activated." : "Driver account deactivated."
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not update driver."
+      );
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   return (
@@ -207,7 +247,7 @@ export default function AdminDriversPage() {
               </div>
               <Button
                 className="w-full bg-green hover:bg-green/90"
-                onClick={handleAddDriver}
+                onClick={() => void handleAddDriver()}
                 disabled={saving}
               >
                 {saving ? "Creating account..." : "Create driver account"}
@@ -217,53 +257,80 @@ export default function AdminDriversPage() {
         </Dialog>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {drivers.map((driver) => (
-          <div
-            key={driver.id}
-            className="rounded-2xl bg-white p-5 shadow-card"
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-light-blue">
-                <Bike className="h-6 w-6 text-sky" />
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading drivers…</p>
+      ) : drivers.length === 0 ? (
+        <EmptyState
+          icon={Bike}
+          title="No drivers yet"
+          description="Add a driver account to see them here and assign deliveries."
+        />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {drivers.map((driver) => (
+            <div
+              key={driver.id}
+              className="rounded-2xl bg-white p-5 shadow-card"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-light-blue">
+                  <Bike className="h-6 w-6 text-sky" />
+                </div>
+                <span
+                  className={cn(
+                    "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                    statusStyles[driver.status]
+                  )}
+                >
+                  {driver.status}
+                </span>
               </div>
-              <span
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                  statusStyles[driver.status]
-                )}
-              >
-                {driver.status}
-              </span>
-            </div>
-            <h3 className="mt-4 text-lg font-semibold text-navy">
-              {driver.profile?.full_name ?? "Driver"}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              {driver.profile?.email}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {driver.profile?.phone}
-            </p>
-            <div className="mt-3 space-y-1 text-sm">
-              <p>
-                <span className="text-muted-foreground">Vehicle:</span>{" "}
-                {driver.vehicle_type}
-                {driver.vehicle_number ? ` · ${driver.vehicle_number}` : ""}
+              <h3 className="mt-4 text-lg font-semibold text-navy">
+                {driver.profile?.full_name ?? "Driver"}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {driver.profile?.email}
               </p>
-              <p className="flex items-center gap-1">
-                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                {driver.rating} · {driver.total_deliveries} deliveries
+              <p className="text-sm text-muted-foreground">
+                {driver.profile?.phone}
               </p>
+              <div className="mt-3 space-y-1 text-sm">
+                <p>
+                  <span className="text-muted-foreground">Vehicle:</span>{" "}
+                  {driver.vehicle_type}
+                  {driver.vehicle_number ? ` · ${driver.vehicle_number}` : ""}
+                </p>
+                <p className="flex items-center gap-1">
+                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                  {driver.rating} · {driver.total_deliveries} deliveries
+                </p>
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+                <div>
+                  <Badge variant={driver.is_active ? "default" : "secondary"}>
+                    {driver.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {driver.is_active
+                      ? "Can sign in and take deliveries"
+                      : "Cannot sign in until reactivated"}
+                  </p>
+                </div>
+                <Switch
+                  checked={driver.is_active}
+                  disabled={togglingId === driver.id}
+                  onCheckedChange={(v) =>
+                    void handleToggleActive(driver.id, v === true)
+                  }
+                  aria-label={
+                    driver.is_active ? "Deactivate driver" : "Activate driver"
+                  }
+                />
+              </div>
             </div>
-            <div className="mt-3">
-              <Badge variant={driver.is_active ? "default" : "secondary"}>
-                {driver.is_active ? "Active" : "Inactive"}
-              </Badge>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

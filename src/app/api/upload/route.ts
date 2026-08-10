@@ -3,7 +3,10 @@ import {
   getSessionProfileFromCookies,
 } from "@/lib/auth/server";
 import { jsonError, jsonOk } from "@/lib/auth/http";
+import { isSupabaseConfigured } from "@/lib/auth/config";
+import { updateAccountProfile } from "@/lib/auth/accounts";
 import { updateProductImageInSupabase } from "@/lib/supabase/catalog";
+import { createServerClient } from "@/lib/supabase/server";
 import {
   buildImageObjectKey,
   getSignedS3ObjectUrl,
@@ -13,6 +16,26 @@ import {
 } from "@/lib/storage/s3";
 
 const MAX_BYTES = 5 * 1024 * 1024;
+
+async function saveAvatarUrl(
+  userId: string,
+  publicUrl: string
+): Promise<void> {
+  if (isSupabaseConfigured()) {
+    const client = await createServerClient();
+    if (client) {
+      await client
+        .from("profiles")
+        .update({
+          avatar_url: publicUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+      return;
+    }
+  }
+  await updateAccountProfile(userId, { avatar_url: publicUrl });
+}
 
 export async function POST(request: Request) {
   const profile = await getSessionProfileFromCookies();
@@ -35,7 +58,7 @@ export async function POST(request: Request) {
 
   const file = form.get("file");
   const bucketHint = String(form.get("bucket") ?? "islandcoolersimg");
-  const folder = String(form.get("folder") ?? profile.id);
+  const folderRaw = String(form.get("folder") ?? profile.id);
   const productId = form.get("productId");
   const kind = kindFromBucketHint(bucketHint);
 
@@ -59,6 +82,9 @@ export async function POST(request: Request) {
   ) {
     return jsonError("Forbidden.", 403);
   }
+
+  // Avatars always land under the signed-in user's folder
+  const folder = kind === "avatars" ? profile.id : folderRaw;
 
   const key = buildImageObjectKey({
     kind,
@@ -88,11 +114,16 @@ export async function POST(request: Request) {
       await updateProductImageInSupabase(productId, publicUrl);
     }
 
+    if (kind === "avatars") {
+      await saveAvatarUrl(profile.id, publicUrl);
+    }
+
     return jsonOk({
       path: key,
       publicUrl,
       bucket: process.env.S3_BUCKET || "islandcoolersimg",
       storage: "s3",
+      avatarUpdated: kind === "avatars",
     });
   } catch (err) {
     const message =

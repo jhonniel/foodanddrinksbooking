@@ -1,41 +1,82 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, Package, RefreshCw } from "lucide-react";
+import { Clock, Package, PackageCheck, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { AssignDriverControls } from "@/components/admin/AssignDriverControls";
+import { AssignDriverControls, canAssignOrReassignOrderStatus } from "@/components/admin/AssignDriverControls";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetDescription,
+  SheetBody,
+  SheetFooter,
 } from "@/components/ui/sheet";
-import { KANBAN_COLUMNS, STATUS_ACTIONS, staffCanCancelOrder } from "@/lib/constants";
+import { ORDERS_QUEUE_COLUMNS, STATUS_ACTIONS, staffCanCancelOrder } from "@/lib/constants";
 import { canAccessAdmin, canAssignDrivers } from "@/lib/auth/config";
 import {
   formatCurrency,
   formatDateTime,
+  formatPoints,
   relativeTime,
 } from "@/lib/utils/format";
+import { Stagger, StaggerItem } from "@/components/motion";
 import type { DeliveryOrder, Order } from "@/types";
 import { cn } from "@/lib/utils";
+import { calculateOrderPointsEarned } from "@/services/loyaltyService";
 
 export default function AdminOrdersPage() {
   const orders = useAppStore((s) => s.orders);
+  const deliveries = useAppStore((s) => s.deliveries);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const updateOrderStatus = useAppStore((s) => s.updateOrderStatus);
+  const updateDeliveryStatus = useAppStore((s) => s.updateDeliveryStatus);
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
   const role = user?.role;
   const [selected, setSelected] = useState<Order | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [pickupBusyId, setPickupBusyId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+
+  const deliveryForOrder = (orderId: string) =>
+    deliveries.find((d) => d.order_id === orderId);
+
+  const handleMarkPickedUp = async (order: Order, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const delivery = deliveryForOrder(order.id);
+    if (!delivery) {
+      toast.error("No delivery record for this order.");
+      return;
+    }
+    if (delivery.status !== "ACCEPTED") {
+      toast.error(
+        delivery.status === "ASSIGNED"
+          ? "Wait until the driver accepts the delivery."
+          : "This delivery is not ready for pickup confirmation."
+      );
+      return;
+    }
+    setPickupBusyId(delivery.id);
+    try {
+      await updateDeliveryStatus(delivery.id, "PICKED_UP");
+      toast.success(`Order #${order.order_number} marked as picked up`);
+      setSelected(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not mark as picked up."
+      );
+    } finally {
+      setPickupBusyId(null);
+    }
+  };
 
   const refreshOrders = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setRefreshing(true);
@@ -100,9 +141,20 @@ export default function AdminOrdersPage() {
 
   const handleAdvance = (order: Order) => {
     const action = STATUS_ACTIONS[order.status];
-    if (!action || order.status === "READY") return;
-    updateOrderStatus(order.id, action.next);
-    toast.success(`Order #${order.order_number} → ${action.next}`);
+    // Pickup: from Ready, staff can complete without a rider
+    if (
+      !action &&
+      !(order.order_type === "PICKUP" && order.status === "READY")
+    ) {
+      return;
+    }
+    if (order.status === "READY" && order.order_type !== "PICKUP") return;
+    const next =
+      order.order_type === "PICKUP" && order.status === "READY"
+        ? ("DELIVERED" as const)
+        : action!.next;
+    updateOrderStatus(order.id, next);
+    toast.success(`Order #${order.order_number} → ${next}`);
   };
 
   const handleCancelOrder = (order: Order) => {
@@ -123,10 +175,12 @@ export default function AdminOrdersPage() {
   };
 
   const pendingCount = orders.filter((o) => o.status === "PENDING").length;
-  const cancelledCount = orders.filter((o) => o.status === "CANCELLED").length;
+  const queueOrders = orders.filter(
+    (o) => o.status !== "DELIVERED" && o.status !== "CANCELLED"
+  );
   const normalizedQuery = query.trim().toLowerCase().replace(/^#/, "");
   const visibleOrders = normalizedQuery
-    ? orders.filter((o) => {
+    ? queueOrders.filter((o) => {
         const hay = [
           o.order_number,
           o.customer?.full_name,
@@ -138,18 +192,19 @@ export default function AdminOrdersPage() {
           .toLowerCase();
         return hay.includes(normalizedQuery);
       })
-    : orders;
+    : queueOrders;
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem-4rem)] flex-col lg:h-dvh">
       <div className="border-b bg-white px-3 py-3 sm:px-4 sm:py-4 lg:px-8">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-navy sm:text-2xl">Orders</h1>
+            <h1 className="text-xl font-bold text-navy sm:text-2xl">
+              Orders Queue
+            </h1>
             <p className="text-sm text-muted-foreground">
-              {orders.length} total · {pendingCount} new
-              {cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""} ·
-              swipe right for later columns
+              {queueOrders.length} in queue · {pendingCount} new · swipe right
+              for later columns
             </p>
             {loadError && (
               <p className="mt-1 text-sm text-red-600">
@@ -193,7 +248,7 @@ export default function AdminOrdersPage() {
 
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 sm:p-4 lg:p-6 hide-scrollbar">
         <div className="flex h-full min-w-max gap-3 snap-x snap-mandatory sm:gap-4">
-          {KANBAN_COLUMNS.map(({ status, label }) => {
+          {ORDERS_QUEUE_COLUMNS.map(({ status, label }) => {
             const columnOrders = visibleOrders
               .filter((o) => o.status === status)
               .sort((a, b) =>
@@ -212,18 +267,26 @@ export default function AdminOrdersPage() {
                     {columnOrders.length}
                   </span>
                 </div>
-                <div className="flex-1 space-y-3 overflow-y-auto p-3">
+                <div className="flex-1 overflow-y-auto p-3">
                   {columnOrders.length === 0 ? (
                     <p className="py-8 text-center text-xs text-muted-foreground">
                       No orders
                     </p>
                   ) : (
-                    columnOrders.map((order) => {
+                    <Stagger className="space-y-3" fast>
+                      {columnOrders.map((order) => {
                       const action = STATUS_ACTIONS[order.status];
-                      const isReady = order.status === "READY";
+                      const showAssign = canAssignOrReassignOrderStatus(
+                        order.status
+                      );
+                      const delivery = deliveryForOrder(order.id);
+                      const driverAccepted = delivery?.status === "ACCEPTED";
+                      const awaitingDriver =
+                        order.status === "ASSIGNED" &&
+                        delivery?.status === "ASSIGNED";
                       return (
+                        <StaggerItem key={order.id}>
                         <div
-                          key={order.id}
                           className="cursor-pointer rounded-xl border border-border/60 bg-surface p-3 transition hover:border-sky/30 hover:shadow-sm"
                           onClick={() => setSelected(order)}
                         >
@@ -249,13 +312,42 @@ export default function AdminOrdersPage() {
                           <p className="mt-2 text-sm font-bold text-green">
                             {formatCurrency(order.total)}
                           </p>
-                          {isReady ? (
+                          {driverAccepted && canAccessAdmin(role) ? (
+                            <div className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+                              <p className="text-xs font-medium text-amber-800">
+                                Driver accepted — confirm handover
+                              </p>
+                              <Button
+                                size="sm"
+                                className="w-full bg-green hover:bg-green/90"
+                                disabled={pickupBusyId === delivery.id}
+                                onClick={(e) => void handleMarkPickedUp(order, e)}
+                              >
+                                <PackageCheck className="mr-1.5 h-4 w-4" />
+                                {pickupBusyId === delivery.id
+                                  ? "Saving…"
+                                  : "Mark Picked Up"}
+                              </Button>
+                              {canAssignDrivers(role) && (
+                                <AssignDriverControls
+                                  orderId={order.id}
+                                  compact
+                                />
+                              )}
+                            </div>
+                          ) : showAssign ? (
                             canAssignDrivers(role) ? (
-                              <AssignDriverControls
-                                orderId={order.id}
-                                compact
-                                className="mt-3"
-                              />
+                              <div className="mt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+                                {awaitingDriver && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Waiting for driver to accept
+                                  </p>
+                                )}
+                                <AssignDriverControls
+                                  orderId={order.id}
+                                  compact
+                                />
+                              </div>
                             ) : (
                               <p className="mt-3 text-xs text-muted-foreground">
                                 Waiting for manager to assign a driver
@@ -279,8 +371,10 @@ export default function AdminOrdersPage() {
                             )
                           )}
                         </div>
+                        </StaggerItem>
                       );
-                    })
+                    })}
+                    </Stagger>
                   )}
                 </div>
               </div>
@@ -290,95 +384,226 @@ export default function AdminOrdersPage() {
       </div>
 
       <Sheet open={!!selected} onOpenChange={() => setSelected(null)}>
-        <SheetContent className="w-full sm:max-w-md">
+        <SheetContent className="w-full bg-surface sm:max-w-md">
           {selected && (
             <>
               <SheetHeader>
-                <SheetTitle className="text-navy">
-                  Order #{selected.order_number}
-                </SheetTitle>
-              </SheetHeader>
-              <div className="mt-6 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <SheetTitle>Order #{selected.order_number}</SheetTitle>
                   <StatusBadge status={selected.status} />
-                  <span className="text-sm text-muted-foreground">
-                    {formatDateTime(selected.created_at)}
-                  </span>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-navy">Customer</p>
-                  <p className="text-sm text-muted-foreground">
+                <SheetDescription>
+                  {formatDateTime(selected.created_at)} ·{" "}
+                  {selected.order_type === "PICKUP" ? "Pickup" : "Delivery"}
+                </SheetDescription>
+              </SheetHeader>
+
+              <SheetBody className="space-y-4">
+                <div className="rounded-2xl bg-white p-3.5 shadow-card">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Customer
+                  </p>
+                  <p className="mt-1 font-semibold text-navy">
                     {selected.customer?.full_name}
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    {selected.customer?.phone}
-                  </p>
-                </div>
-                {selected.delivery_address_snapshot && (
-                  <div>
-                    <p className="text-sm font-medium text-navy">Delivery</p>
+                  {selected.customer?.phone && (
                     <p className="text-sm text-muted-foreground">
+                      {selected.customer.phone}
+                    </p>
+                  )}
+                  {selected.customer && (
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-sky/10 px-2.5 py-2">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-sky">
+                          Balance
+                        </p>
+                        <p className="text-sm font-bold tabular-nums text-navy">
+                          {formatPoints(selected.customer.points_balance ?? 0)}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-green/10 px-2.5 py-2">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-green">
+                          Lifetime
+                        </p>
+                        <p className="text-sm font-bold tabular-nums text-navy">
+                          {formatPoints(selected.customer.lifetime_points ?? 0)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {selected.delivery_address_snapshot && (
+                  <div className="rounded-2xl bg-white p-3.5 shadow-card">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Delivery address
+                    </p>
+                    <p className="mt-1 text-sm text-navy">
                       {selected.delivery_address_snapshot.full_address}
                     </p>
                   </div>
                 )}
-                <div>
-                  <p className="mb-2 text-sm font-medium text-navy">Items</p>
+
+                <div className="rounded-2xl bg-white p-3.5 shadow-card">
+                  <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Items
+                  </p>
                   <ul className="space-y-2">
                     {(selected.items ?? []).map((item) => (
                       <li
                         key={item.id}
-                        className="flex justify-between text-sm"
+                        className="flex justify-between gap-3 text-sm"
                       >
-                        <span>
-                          {item.quantity}× {item.product_name}
+                        <span className="text-navy">
+                          <span className="font-medium text-muted-foreground">
+                            {item.quantity}×
+                          </span>{" "}
+                          {item.product_name}
                         </span>
-                        <span>{formatCurrency(item.total_price)}</span>
+                        <span className="shrink-0 tabular-nums text-navy">
+                          {formatCurrency(item.total_price)}
+                        </span>
                       </li>
                     ))}
                   </ul>
                 </div>
-                <div className="rounded-xl bg-light-blue p-3">
+
+                <div className="rounded-2xl bg-white p-3.5 shadow-card">
                   <div className="flex justify-between text-sm">
-                    <span>Subtotal</span>
-                    <span>{formatCurrency(selected.subtotal)}</span>
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="tabular-nums">
+                      {formatCurrency(selected.subtotal)}
+                    </span>
                   </div>
                   {selected.delivery_fee > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span>Delivery</span>
-                      <span>{formatCurrency(selected.delivery_fee)}</span>
+                    <div className="mt-1.5 flex justify-between text-sm">
+                      <span className="text-muted-foreground">Delivery</span>
+                      <span className="tabular-nums">
+                        {formatCurrency(selected.delivery_fee)}
+                      </span>
                     </div>
                   )}
-                  <div className="mt-1 flex justify-between font-bold text-navy">
+                  {(selected.discount > 0 || selected.points_discount > 0) && (
+                    <div className="mt-1.5 flex justify-between text-sm text-green">
+                      <span>Discounts</span>
+                      <span className="tabular-nums">
+                        −
+                        {formatCurrency(
+                          selected.discount + selected.points_discount
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  <div className="mt-2.5 flex justify-between border-t border-border/50 pt-2.5 font-bold text-navy">
                     <span>Total</span>
-                    <span>{formatCurrency(selected.total)}</span>
+                    <span className="tabular-nums text-green">
+                      {formatCurrency(selected.total)}
+                    </span>
+                  </div>
+                  <div className="mt-2.5 flex justify-between rounded-xl bg-sky/10 px-3 py-2.5 text-sm">
+                    <span className="text-muted-foreground">
+                      Points to earn
+                      <span className="block text-[11px]">
+                        Items only · delivery excluded
+                      </span>
+                    </span>
+                    <span className="font-semibold tabular-nums text-sky">
+                      +
+                      {formatPoints(
+                        calculateOrderPointsEarned({
+                          subtotal: selected.subtotal,
+                          discount: selected.discount,
+                          pointsDiscount: selected.points_discount,
+                        })
+                      )}{" "}
+                      pts
+                    </span>
                   </div>
                 </div>
-                {selected.status === "READY" ? (
-                  canAssignDrivers(role) ? (
-                    <AssignDriverControls
-                      orderId={selected.id}
-                      compact
-                      onAssigned={() => setSelected(null)}
-                    />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Waiting for manager to assign a driver
-                    </p>
-                  )
-                ) : (
-                  STATUS_ACTIONS[selected.status] && (
-                    <Button
-                      className="w-full bg-green hover:bg-green/90"
-                      onClick={() => {
-                        handleAdvance(selected);
-                        setSelected(null);
-                      }}
-                    >
-                      {STATUS_ACTIONS[selected.status]!.label}
-                    </Button>
-                  )
-                )}
+              </SheetBody>
+
+              <SheetFooter>
+                {(() => {
+                  const delivery = deliveryForOrder(selected.id);
+                  const driverAccepted = delivery?.status === "ACCEPTED";
+                  if (driverAccepted && canAccessAdmin(role) && delivery) {
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-sm text-amber-800">
+                          Driver accepted. Hand over the order, then mark picked
+                          up.
+                        </p>
+                        <Button
+                          className="w-full bg-green hover:bg-green/90"
+                          disabled={pickupBusyId === delivery.id}
+                          onClick={() => void handleMarkPickedUp(selected)}
+                        >
+                          <PackageCheck className="mr-2 h-4 w-4" />
+                          {pickupBusyId === delivery.id
+                            ? "Saving…"
+                            : "Mark Picked Up"}
+                        </Button>
+                        {canAssignDrivers(role) && (
+                          <AssignDriverControls
+                            orderId={selected.id}
+                            compact
+                            onAssigned={() => setSelected(null)}
+                          />
+                        )}
+                      </div>
+                    );
+                  }
+                  if (
+                    selected.order_type === "PICKUP" &&
+                    selected.status === "READY"
+                  ) {
+                    return (
+                      <Button
+                        className="w-full bg-green hover:bg-green/90"
+                        onClick={() => {
+                          handleAdvance(selected);
+                          setSelected(null);
+                        }}
+                      >
+                        Mark Completed (Pickup)
+                      </Button>
+                    );
+                  }
+                  if (canAssignOrReassignOrderStatus(selected.status)) {
+                    return canAssignDrivers(role) ? (
+                      <div className="space-y-2">
+                        {delivery?.status === "ASSIGNED" && (
+                          <p className="text-sm text-muted-foreground">
+                            Waiting for driver to accept
+                          </p>
+                        )}
+                        <AssignDriverControls
+                          orderId={selected.id}
+                          compact
+                          onAssigned={() => setSelected(null)}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Waiting for manager to assign a driver
+                      </p>
+                    );
+                  }
+                  if (STATUS_ACTIONS[selected.status]) {
+                    return (
+                      <Button
+                        className="w-full bg-green hover:bg-green/90"
+                        onClick={() => {
+                          handleAdvance(selected);
+                          setSelected(null);
+                        }}
+                      >
+                        {STATUS_ACTIONS[selected.status]!.label}
+                      </Button>
+                    );
+                  }
+                  return null;
+                })()}
                 {staffCanCancelOrder(selected.status) && (
                   <Button
                     type="button"
@@ -389,7 +614,7 @@ export default function AdminOrdersPage() {
                     Cancel order
                   </Button>
                 )}
-              </div>
+              </SheetFooter>
             </>
           )}
         </SheetContent>

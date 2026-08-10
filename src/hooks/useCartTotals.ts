@@ -6,7 +6,7 @@ import {
   calculateDeliveryFee,
   type DeliveryQuote,
 } from "@/lib/delivery/pricing";
-import { LOYALTY_SETTINGS } from "@/data/demo";
+import { calculateOrderPointsEarned } from "@/services/loyaltyService";
 
 const PICKUP_QUOTE: DeliveryQuote = {
   distanceKm: 0,
@@ -43,9 +43,12 @@ export function useCartTotals() {
       0,
       subtotal + deliveryFee - promoDiscount - pointsDiscount
     );
-    const pointsEarned = Math.floor(
-      total * LOYALTY_SETTINGS.points_per_peso
-    );
+    // Points: items only (after discounts). Delivery fee never counts.
+    const pointsEarned = calculateOrderPointsEarned({
+      subtotal,
+      discount: promoDiscount,
+      pointsDiscount,
+    });
 
     return {
       items,

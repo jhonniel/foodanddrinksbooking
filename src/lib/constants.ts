@@ -51,6 +51,12 @@ export const KANBAN_COLUMNS: { status: OrderStatus; label: string }[] = [
   { status: "CANCELLED", label: "Cancelled" },
 ];
 
+/** Active board columns — completed/cancelled live in Order History. */
+export const ORDERS_QUEUE_COLUMNS: { status: OrderStatus; label: string }[] =
+  KANBAN_COLUMNS.filter(
+    (c) => c.status !== "DELIVERED" && c.status !== "CANCELLED"
+  );
+
 export const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
   PENDING: "CONFIRMED",
   CONFIRMED: "PREPARING",
@@ -69,6 +75,8 @@ export const STATUS_ACTIONS: Partial<
   CONFIRMED: { label: "Start Preparing", next: "PREPARING" },
   PREPARING: { label: "Mark Ready", next: "READY" },
   READY: { label: "Assign Rider", next: "ASSIGNED" },
+  /** Staff can complete from queue after rider arrives (or for edge cases). */
+  ARRIVED: { label: "Mark Delivered", next: "DELIVERED" },
 };
 
 /** Unaccepted (PENDING) orders auto-cancel after this duration. */

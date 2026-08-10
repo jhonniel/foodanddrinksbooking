@@ -20,20 +20,24 @@ import {
   Menu,
   X,
   LogOut,
+  History,
 } from "lucide-react";
 import { useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/Logo";
 import { useAuthStore } from "@/stores/auth";
 import { hasPermission } from "@/lib/constants";
 import { NotificationBell } from "@/components/shared/NotificationBell";
+import { fadeUp, staggerFast } from "@/components/motion";
 import type { UserRole } from "@/types";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard" },
-  { href: "/admin/orders", label: "Orders", icon: ClipboardList, permission: "orders" },
+  { href: "/admin/orders", label: "Orders Queue", icon: ClipboardList, permission: "orders" },
   { href: "/admin/products", label: "Products", icon: Package, permission: "products" },
+  { href: "/admin/order-history", label: "Order History", icon: History, permission: "orders" },
   { href: "/admin/categories", label: "Categories", icon: Tags, permission: "categories" },
   { href: "/admin/inventory", label: "Inventory", icon: Warehouse, permission: "inventory" },
   { href: "/admin/customers", label: "Customers", icon: Users, permission: "customers" },
@@ -55,6 +59,7 @@ export function AdminSidebar() {
   const role = (user?.role || "STAFF") as UserRole;
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const reduce = useReducedMotion();
 
   const filtered = navItems.filter(
     (item) =>
@@ -77,39 +82,46 @@ export function AdminSidebar() {
 
   const Nav = (
     <>
-      <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border px-5">
+      <div className="flex h-16 items-center border-b border-sidebar-border px-5">
         <Logo variant="light" size="sm" href="/admin" showText />
-        <NotificationBell
-          href="/admin/notifications"
-          className="text-white/80 hover:bg-white/10"
-        />
       </div>
       <nav
         className="flex-1 space-y-0.5 overflow-y-auto p-3"
         aria-label="Admin navigation"
       >
-        {filtered.map(({ href, label, icon: Icon }) => {
-          const active =
-            href === "/admin"
-              ? pathname === "/admin"
-              : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setOpen(false)}
-              className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                active
-                  ? "bg-sidebar-accent text-white"
-                  : "text-white/70 hover:bg-sidebar-accent/60 hover:text-white"
-              )}
-            >
-              <Icon className="h-4.5 w-4.5 shrink-0" />
-              {label}
-            </Link>
-          );
-        })}
+        <motion.div
+          className="space-y-0.5"
+          variants={reduce ? undefined : staggerFast}
+          initial={reduce ? false : "hidden"}
+          animate="show"
+        >
+          {filtered.map(({ href, label, icon: Icon }) => {
+            const active =
+              href === "/admin"
+                ? pathname === "/admin"
+                : href === "/admin/orders"
+                  ? pathname === "/admin/orders" ||
+                    pathname.startsWith("/admin/orders/")
+                  : pathname === href || pathname.startsWith(`${href}/`);
+            return (
+              <motion.div key={href} variants={reduce ? undefined : fadeUp}>
+                <Link
+                  href={href}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                    active
+                      ? "bg-sidebar-accent text-white shadow-sm"
+                      : "text-white/70 hover:translate-x-0.5 hover:bg-sidebar-accent/60 hover:text-white"
+                  )}
+                >
+                  <Icon className="h-4.5 w-4.5 shrink-0" />
+                  {label}
+                </Link>
+              </motion.div>
+            );
+          })}
+        </motion.div>
       </nav>
       <div className="space-y-3 border-t border-sidebar-border p-4">
         <div>

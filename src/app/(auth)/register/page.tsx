@@ -28,7 +28,6 @@ function RegisterForm() {
     resolver: zodResolver(registerSchema),
     defaultValues: {
       fullName: "",
-      email: "",
       phone: "",
       password: "",
       confirmPassword: "",
@@ -38,10 +37,9 @@ function RegisterForm() {
   const onSubmit = async (data: RegisterInput) => {
     setLoading(true);
     const result = await registerAccount({
-      email: data.email,
       password: data.password,
       fullName: data.fullName,
-      phone: data.phone || undefined,
+      phone: data.phone,
     });
     setLoading(false);
 
@@ -70,7 +68,7 @@ function RegisterForm() {
           <Logo href="/" size="lg" className="justify-center" />
           <h1 className="mt-6 text-2xl font-bold text-navy">Create account</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign up with email to start ordering.
+            Sign up with your name and mobile number.
           </p>
         </div>
 
@@ -96,30 +94,13 @@ function RegisterForm() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@email.com"
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="text-xs text-destructive" role="alert">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone">
-                Phone <span className="text-muted-foreground">(optional)</span>
-              </Label>
+              <Label htmlFor="phone">Mobile number</Label>
               <Input
                 id="phone"
                 type="tel"
+                inputMode="tel"
                 autoComplete="tel"
-                placeholder="+63 9XX XXX XXXX"
+                placeholder="09XX XXX XXXX"
                 {...register("phone")}
               />
               {errors.phone && (

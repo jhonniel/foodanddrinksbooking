@@ -118,11 +118,12 @@ export async function validatePromoCode(
     (p) => p.promo_code?.toUpperCase() === code.toUpperCase() && p.is_active
   );
   if (!promo) return { valid: false, discount: 0, error: "Invalid promo code." };
+  // Minimums & % discounts use item subtotal only — delivery fee never counts.
   if (subtotal < promo.min_order_amount) {
     return {
       valid: false,
       discount: 0,
-      error: `Minimum order of ₱${promo.min_order_amount} required.`,
+      error: `Minimum order of ₱${promo.min_order_amount} required (items only; delivery fee does not count).`,
     };
   }
   let discount = 0;

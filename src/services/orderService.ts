@@ -10,7 +10,7 @@ import type {
 import { getCartItemPrice } from "@/stores/cart";
 import { processPayment } from "@/lib/payments/provider";
 import { generateIdempotencyKey, generateDeliveryPin } from "@/lib/utils/format";
-import { LOYALTY_SETTINGS } from "@/data/demo";
+import { calculateOrderPointsEarned } from "@/services/loyaltyService";
 
 export interface PlaceOrderInput {
   customerId: string;
@@ -67,7 +67,11 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     const orderId = `ord-${Date.now()}`;
     const orderNumber = input.orderNumber || `IC${orderSeq++}`;
     const now = new Date().toISOString();
-    const pointsEarned = Math.floor(total * LOYALTY_SETTINGS.points_per_peso);
+    const pointsEarned = calculateOrderPointsEarned({
+      subtotal: input.subtotal,
+      discount: input.discount,
+      pointsDiscount: input.pointsDiscount,
+    });
 
     const items: OrderItem[] = input.items.map((item, idx) => ({
       id: `${orderId}-item-${idx}`,

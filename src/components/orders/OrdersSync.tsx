@@ -7,17 +7,19 @@ import {
   clearLegacyOrderLocalStorage,
   useAppStore,
 } from "@/stores/app";
+import { useDataStore } from "@/stores/data";
 import {
   createNotification,
   NotificationTemplates,
 } from "@/services/notificationService";
 import { AUTO_CANCEL_REASON } from "@/lib/constants";
 import { canAccessAdmin } from "@/lib/auth/config";
-import type { DeliveryOrder, Order } from "@/types";
+import type { DeliveryOrder, Driver, Order } from "@/types";
 
 /**
- * Syncs in-memory order state from Supabase via /api/orders.
- * Orders are never written to localStorage.
+ * Syncs in-memory order state from Supabase.
+ * Drivers use /api/drivers/me/deliveries (assignments only).
+ * Staff/customers use /api/orders.
  */
 export function OrdersSync() {
   const user = useAuthStore((s) => s.user);
@@ -25,6 +27,7 @@ export function OrdersSync() {
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const addNotification = useAppStore((s) => s.addNotification);
+  const setDrivers = useDataStore((s) => s.setDrivers);
   const notifiedAutoCancel = useRef(new Set<string>());
 
   useEffect(() => {
@@ -33,6 +36,8 @@ export function OrdersSync() {
 
   useEffect(() => {
     if (authInitializing || !user) return;
+    // Driver assignments are synced by DriverDeliveriesSync in /driver layout.
+    if (user.role === "DRIVER") return;
 
     let cancelled = false;
     const isStaff = canAccessAdmin(user.role);
@@ -48,6 +53,7 @@ export function OrdersSync() {
           orders?: Order[];
           deliveries?: DeliveryOrder[];
           autoCancelled?: Order[];
+          driver?: Driver | null;
         };
         if (cancelled) return;
 
@@ -107,7 +113,14 @@ export function OrdersSync() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user, authInitializing, setOrders, setDeliveries, addNotification]);
+  }, [
+    user,
+    authInitializing,
+    setOrders,
+    setDeliveries,
+    addNotification,
+    setDrivers,
+  ]);
 
   return null;
 }

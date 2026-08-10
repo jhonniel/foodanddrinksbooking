@@ -4,6 +4,7 @@ import {
   isSupabaseConfigured,
   requiresSupabaseOnVercel,
 } from "@/lib/auth/config";
+import { resolveLoginEmail } from "@/lib/auth/phone";
 import { setSessionCookie, jsonError, jsonOk } from "@/lib/auth/http";
 import {
   createBrowserLikeServerClient,
@@ -12,7 +13,7 @@ import {
 import type { Profile } from "@/types";
 
 const bodySchema = z.object({
-  email: z.string().email(),
+  email: z.string().min(3),
   password: z.string().min(1),
 });
 
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return jsonError("Invalid email or password.");
+    return jsonError("Invalid phone number/email or password.");
   }
 
   if (requiresSupabaseOnVercel()) {
@@ -30,7 +31,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { email, password } = parsed.data;
+  const email = resolveLoginEmail(parsed.data.email);
+  const { password } = parsed.data;
+  if (!email) {
+    return jsonError("Invalid phone number/email or password.", 401);
+  }
 
   if (isSupabaseConfigured()) {
     const supabase = await createBrowserLikeServerClient();
@@ -42,14 +47,63 @@ export async function POST(request: Request) {
     });
 
     if (error || !data.user) {
-      return jsonError("Invalid email or password.", 401);
+      const msg = (error?.message || "").toLowerCase();
+      if (
+        msg.includes("banned") ||
+        msg.includes("disabled") ||
+        msg.includes("user is banned")
+      ) {
+        return jsonError(
+          "This account has been deactivated. Contact an admin.",
+          403
+        );
+      }
+      return jsonError("Invalid phone number/email or password.", 401);
     }
 
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", data.user.id)
-      .maybeSingle();
+    // Prefer service-role profile read so RLS never blocks the active check
+    let profileRow = (
+      await supabase.from("profiles").select("*").eq("id", data.user.id).maybeSingle()
+    ).data;
+
+    if (!profileRow) {
+      const admin = await createServerClient();
+      if (admin) {
+        const res = await admin
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .maybeSingle();
+        profileRow = res.data;
+      }
+    }
+
+    if (profileRow && profileRow.is_active === false) {
+      await supabase.auth.signOut();
+      return jsonError(
+        "This account has been deactivated. Contact an admin.",
+        403
+      );
+    }
+
+    // Drivers table flag (admin toggle) also blocks sign-in
+    if (profileRow?.role === "DRIVER") {
+      const admin = await createServerClient();
+      if (admin) {
+        const { data: driverRow } = await admin
+          .from("drivers")
+          .select("is_active")
+          .eq("profile_id", data.user.id)
+          .maybeSingle();
+        if (driverRow && driverRow.is_active === false) {
+          await supabase.auth.signOut();
+          return jsonError(
+            "This driver account has been deactivated. Contact an admin.",
+            403
+          );
+        }
+      }
+    }
 
     const metaRole = (data.user.app_metadata?.role ||
       data.user.user_metadata?.role) as Profile["role"] | undefined;

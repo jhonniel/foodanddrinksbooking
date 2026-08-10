@@ -77,7 +77,10 @@ async function getSupabaseProfile(): Promise<Profile | null> {
     }
   }
 
-  if (data) return data as Profile;
+  if (data) {
+    if ((data as Profile).is_active === false) return null;
+    return data as Profile;
+  }
 
   // Fallback when profiles table is missing or row not yet created
   const role = (user.app_metadata?.role ||

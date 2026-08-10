@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
-import { MapPin, Package, Power } from "lucide-react";
+import { MapPin, Package, Power, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -20,50 +20,101 @@ import {
   resolveDriverOnline,
   setDriverOnlineStatus,
 } from "@/services/driverPresence";
+import type { DeliveryOrder, Driver, Order } from "@/types";
 
 export default function DriverHomePage() {
   const reduce = useReducedMotion();
   const user = useAuthStore((s) => s.user);
-  const deliveries = useAppStore((s) => s.deliveries);
   const driverOnlineFlag = useAppStore((s) => s.driverOnline);
-  const orders = useAppStore((s) => s.orders);
+  const setOrders = useAppStore((s) => s.setOrders);
+  const setDeliveries = useAppStore((s) => s.setDeliveries);
   const drivers = useDataStore((s) => s.drivers);
+  const setDrivers = useDataStore((s) => s.setDrivers);
   const [toggling, setToggling] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [orders, setLocalOrders] = useState<Order[]>([]);
+  const [deliveries, setLocalDeliveries] = useState<DeliveryOrder[]>([]);
 
   const driverRecord =
     drivers.find((d) => d.profile_id === user?.id || d.id === user?.id) ??
     null;
   const driverOnline = resolveDriverOnline(driverRecord, driverOnlineFlag);
-
-  const driverIds = new Set(
-    [user?.id, driverRecord?.id, driverRecord?.profile_id].filter(
-      (id): id is string => typeof id === "string" && id.length > 0
-    )
-  );
-
   const driverName = user?.full_name?.split(" ")[0] ?? "Driver";
-  const matchesDriver = (id?: string | null) =>
-    !!id && driverIds.has(id);
+
+  const loadAssignments = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/drivers/me/deliveries", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => null)) as {
+        orders?: Order[];
+        deliveries?: DeliveryOrder[];
+        driver?: Driver | null;
+        error?: string;
+      } | null;
+
+      if (!res.ok) {
+        setLoadError(data?.error || `Failed to load (${res.status})`);
+        return;
+      }
+
+      const nextOrders = Array.isArray(data?.orders) ? data.orders : [];
+      const nextDeliveries = Array.isArray(data?.deliveries)
+        ? data.deliveries
+        : [];
+
+      setLoadError(null);
+      setLocalOrders(nextOrders);
+      setLocalDeliveries(nextDeliveries);
+      // Keep shared store in sync for other driver pages
+      setOrders(nextOrders);
+      setDeliveries(nextDeliveries);
+
+      if (data?.driver) {
+        const others = useDataStore
+          .getState()
+          .drivers.filter(
+            (d) =>
+              d.id !== data.driver!.id &&
+              d.profile_id !== data.driver!.profile_id
+          );
+        setDrivers([data.driver, ...others]);
+      }
+    } catch {
+      setLoadError("Network error. Pull to refresh.");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, setOrders, setDeliveries, setDrivers]);
+
+  useEffect(() => {
+    void loadAssignments();
+    const id = window.setInterval(() => void loadAssignments(), 3000);
+    return () => window.clearInterval(id);
+  }, [loadAssignments]);
 
   const activeDeliveries = deliveries.filter(
-    (d) =>
-      !["DELIVERED", "CANCELLED"].includes(d.status) &&
-      (matchesDriver(d.driver_id) ||
-        matchesDriver(d.driver?.id) ||
-        matchesDriver(d.driver?.profile_id))
+    (d) => !["DELIVERED", "CANCELLED"].includes(d.status)
   );
-  const completedToday = deliveries.filter(
-    (d) =>
-      d.status === "DELIVERED" &&
-      (matchesDriver(d.driver_id) || matchesDriver(d.driver?.id))
-  ).length;
+  const completedToday = deliveries.filter((d) => {
+    if (d.status !== "DELIVERED") return false;
+    const completedAt = new Date(d.delivered_at ?? d.updated_at);
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return completedAt.getTime() >= start.getTime();
+  }).length;
+
   const pendingCount = activeDeliveries.length;
-
   const activeDelivery = activeDeliveries[0];
-
-  const activeOrder = activeDelivery
-    ? orders.find((o) => o.id === activeDelivery.order_id)
-    : null;
+  const activeOrder =
+    activeDelivery?.order ??
+    (activeDelivery
+      ? orders.find((o) => o.id === activeDelivery.order_id)
+      : null);
 
   useEffect(() => {
     if (!driverOnline || !user?.id) return;
@@ -99,14 +150,34 @@ export default function DriverHomePage() {
         animate={{ opacity: 1, y: 0 }}
         className="mb-6"
       >
-        <h1 className="text-2xl font-bold text-navy">
-          {greeting()}, {driverName}!
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {driverOnline
-            ? "You're online and ready for deliveries"
-            : "Go online to receive deliveries"}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold text-navy">
+              {greeting()}, {driverName}!
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {driverOnline
+                ? "You're online and ready for deliveries"
+                : "Go online to receive deliveries"}
+            </p>
+            {user?.email && (
+              <p className="mt-1 text-xs text-muted-foreground/80">
+                {user.email}
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            className="shrink-0"
+            disabled={loading}
+            onClick={() => void loadAssignments()}
+            aria-label="Refresh assignments"
+          >
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </Button>
+        </div>
       </motion.div>
 
       <div className="mb-6 grid grid-cols-2 gap-3">
@@ -130,26 +201,7 @@ export default function DriverHomePage() {
         </motion.div>
       </div>
 
-      <motion.div
-        whileTap={{ scale: 0.98 }}
-        animate={
-          !driverOnline && !reduce
-            ? {
-                boxShadow: [
-                  "0 0 0 0 rgba(23,107,58,0.35)",
-                  "0 0 0 12px rgba(23,107,58,0)",
-                  "0 0 0 0 rgba(23,107,58,0)",
-                ],
-              }
-            : undefined
-        }
-        transition={
-          !driverOnline
-            ? { duration: 2, repeat: Infinity, ease: "easeOut" }
-            : undefined
-        }
-        className="mb-6 rounded-xl"
-      >
+      <motion.div whileTap={{ scale: 0.98 }} className="mb-6 rounded-xl">
         <Button
           size="lg"
           className={cn(
@@ -167,11 +219,26 @@ export default function DriverHomePage() {
       </motion.div>
 
       <h2 className="mb-3 text-lg font-semibold text-navy">Active Delivery</h2>
-      {!activeDelivery || !activeOrder ? (
+      {loadError ? (
+        <div className="rounded-2xl bg-white p-5 text-center shadow-card">
+          <p className="text-sm text-amber-800">{loadError}</p>
+          <Button
+            className="mt-3"
+            variant="outline"
+            onClick={() => void loadAssignments()}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : !activeDelivery ? (
         <EmptyState
           icon={Package}
           title="No active delivery"
-          description="New assignments will appear here when you're online."
+          description={
+            user?.email
+              ? `No orders assigned to ${user.email}. In Admin, assign using this exact email.`
+              : "New assignments will appear here after admin assigns you."
+          }
           className="rounded-2xl bg-white py-12 shadow-card"
         />
       ) : (
@@ -183,15 +250,15 @@ export default function DriverHomePage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-lg font-bold text-navy">
-                  #{activeOrder.order_number}
+                  #{activeOrder?.order_number ?? "—"}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {activeOrder.customer?.full_name}
+                  {activeOrder?.customer?.full_name ?? "Customer"}
                 </p>
               </div>
               <StatusBadge status={activeDelivery.status} />
             </div>
-            {activeOrder.delivery_address_snapshot && (
+            {activeOrder?.delivery_address_snapshot && (
               <p className="mt-3 flex items-start gap-2 text-sm text-muted-foreground">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-sky" />
                 {activeOrder.delivery_address_snapshot.full_address}
@@ -199,7 +266,7 @@ export default function DriverHomePage() {
             )}
             <div className="mt-4 flex items-center justify-between">
               <span className="text-sm font-medium text-green">
-                {formatCurrency(activeOrder.total)}
+                {activeOrder ? formatCurrency(activeOrder.total) : "—"}
               </span>
               <span className="text-sm font-semibold text-sky">
                 View Details →

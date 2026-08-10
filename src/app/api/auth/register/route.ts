@@ -4,6 +4,11 @@ import {
   isSupabaseConfigured,
   requiresSupabaseOnVercel,
 } from "@/lib/auth/config";
+import {
+  formatPhoneE164,
+  normalizePhoneDigits,
+  phoneToAuthEmail,
+} from "@/lib/auth/phone";
 import { setSessionCookie, jsonError, jsonOk } from "@/lib/auth/http";
 import {
   createBrowserLikeServerClient,
@@ -12,10 +17,9 @@ import {
 import type { Profile, UserRole } from "@/types";
 
 const bodySchema = z.object({
-  email: z.string().email(),
   password: z.string().min(8),
   fullName: z.string().min(2),
-  phone: z.string().optional().nullable(),
+  phone: z.string().min(10),
 });
 
 export async function POST(request: Request) {
@@ -32,14 +36,37 @@ export async function POST(request: Request) {
     );
   }
 
-  const { email, password, fullName, phone } = parsed.data;
+  const { password, fullName, phone: phoneRaw } = parsed.data;
+  const digits = normalizePhoneDigits(phoneRaw);
+  const email = digits ? phoneToAuthEmail(digits) : null;
+  if (!digits || !email) {
+    return jsonError("Enter a valid mobile number.");
+  }
+  const phone = formatPhoneE164(digits);
 
   if (isSupabaseConfigured()) {
     const adminClient = await createServerClient();
     if (!adminClient) return jsonError("Auth is not configured.", 500);
 
-    // Create + auto-confirm so users can use the app without email verify
-    // (Supabase "Confirm email" otherwise returns no session → looks like signup failed on Vercel).
+    // Soft uniqueness: same digits in phone column (any formatting)
+    const { data: existingPhones } = await adminClient
+      .from("profiles")
+      .select("id, phone")
+      .not("phone", "is", null)
+      .limit(500);
+
+    const phoneTaken = (existingPhones ?? []).some((row) => {
+      const other = normalizePhoneDigits(row.phone ?? "");
+      return other != null && other === digits;
+    });
+    if (phoneTaken) {
+      return jsonError(
+        "An account with this mobile number already exists. Please sign in.",
+        409
+      );
+    }
+
+    // Create + auto-confirm (synthetic email; customers never see it)
     const { data: created, error: createError } =
       await adminClient.auth.admin.createUser({
         email,
@@ -47,7 +74,7 @@ export async function POST(request: Request) {
         email_confirm: true,
         user_metadata: {
           full_name: fullName,
-          phone: phone ?? null,
+          phone,
         },
         app_metadata: { role: "CUSTOMER" },
       });
@@ -55,7 +82,10 @@ export async function POST(request: Request) {
     if (createError || !created.user) {
       const msg = createError?.message ?? "Registration failed.";
       if (/already|registered|exists/i.test(msg)) {
-        return jsonError("An account with this email already exists. Please sign in.", 409);
+        return jsonError(
+          "An account with this mobile number already exists. Please sign in.",
+          409
+        );
       }
       if (/database error/i.test(msg)) {
         return jsonError(
@@ -68,13 +98,12 @@ export async function POST(request: Request) {
 
     const userId = created.user.id;
 
-    // Ensure profile row (trigger usually creates it; upsert is a safety net)
     await adminClient.from("profiles").upsert(
       {
         id: userId,
         email,
         full_name: fullName,
-        phone: phone ?? null,
+        phone,
         role: "CUSTOMER",
         is_active: true,
         updated_at: new Date().toISOString(),
@@ -96,7 +125,7 @@ export async function POST(request: Request) {
         .update({
           role: "SUPER_ADMIN",
           full_name: fullName,
-          phone: phone ?? null,
+          phone,
           updated_at: new Date().toISOString(),
         })
         .eq("id", userId)
@@ -119,7 +148,6 @@ export async function POST(request: Request) {
       if (profileRow?.role) role = profileRow.role as UserRole;
     }
 
-    // Establish cookie session for middleware + /api/auth/me
     const sessionClient = await createBrowserLikeServerClient();
     if (sessionClient) {
       const { error: signInError } = await sessionClient.auth.signInWithPassword({
@@ -127,7 +155,6 @@ export async function POST(request: Request) {
         password,
       });
       if (signInError) {
-        // Account exists; client can still land on login
         console.error("[register] sign-in after create failed", signInError.message);
       }
     }
@@ -136,7 +163,7 @@ export async function POST(request: Request) {
       id: userId,
       email,
       full_name: fullName,
-      phone: phone ?? null,
+      phone,
       avatar_url: null,
       role,
       is_active: true,

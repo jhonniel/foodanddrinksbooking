@@ -49,6 +49,48 @@ function upsertLocalDriver(driver: Driver) {
   store.setDrivers([driver, ...others]);
 }
 
+/** Prefer PATCH (ensures + updates). Fall back to GET+PATCH only if needed. */
+export async function fetchDriversFromApi(): Promise<Driver[]> {
+  const res = await fetch("/api/drivers", {
+    cache: "no-store",
+    credentials: "include",
+  });
+  const data = (await res.json().catch(() => null)) as {
+    drivers?: Driver[];
+    error?: string;
+  } | null;
+  if (!res.ok) {
+    throw new Error(data?.error || "Could not load drivers.");
+  }
+  const drivers = data?.drivers ?? [];
+  useDataStore.getState().setDrivers(drivers);
+  return drivers;
+}
+
+export async function setDriverActiveApi(
+  driverId: string,
+  active: boolean
+): Promise<Driver> {
+  const res = await fetch(`/api/drivers/${driverId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ active }),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    driver?: Driver;
+    error?: string;
+  } | null;
+  if (!res.ok || !data?.driver) {
+    throw new Error(data?.error || "Could not update driver.");
+  }
+  const store = useDataStore.getState();
+  store.setDrivers(
+    store.drivers.map((d) => (d.id === driverId ? data.driver! : d))
+  );
+  return data.driver;
+}
+
 /** Load / create the Supabase drivers row for the signed-in driver. */
 export async function syncMyDriverProfile(): Promise<Driver> {
   const res = await fetch("/api/drivers/me", {

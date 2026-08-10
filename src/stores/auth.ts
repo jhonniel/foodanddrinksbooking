@@ -24,10 +24,9 @@ interface AuthState {
     password: string
   ) => Promise<{ ok: boolean; error?: string }>;
   register: (input: {
-    email: string;
     password: string;
     fullName: string;
-    phone?: string;
+    phone: string;
   }) => Promise<{
     ok: boolean;
     error?: string;

@@ -1,16 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import {
+  BookOpen,
+  Plus,
+  RefreshCw,
+  ShoppingBag,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
 import { useAuthStore } from "@/stores/auth";
 import { canAccessAdmin } from "@/lib/auth/config";
-import { formatCurrency, formatPoints } from "@/lib/utils/format";
+import {
+  formatCurrency,
+  formatDateTime,
+  formatPoints,
+  relativeTime,
+} from "@/lib/utils/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   Dialog,
   DialogContent,
@@ -18,12 +30,44 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetBody,
+} from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Stagger, StaggerItem } from "@/components/motion";
+import { isPhoneAuthEmail } from "@/lib/auth/phone";
 import { cn } from "@/lib/utils";
-import type { Profile } from "@/types";
+import type { Order, PointsTransaction, Profile } from "@/types";
+
+function customerEmailLabel(email: string) {
+  if (!email || isPhoneAuthEmail(email)) return "—";
+  return email;
+}
 
 type CustomerRow = Profile & {
   orderCount: number;
   totalSpent: number;
+};
+
+type LedgerPayload = {
+  customer: Profile;
+  orders: Order[];
+  pointsLedger: PointsTransaction[];
+  summary: {
+    orderCount: number;
+    deliveredCount: number;
+    cancelledCount: number;
+    totalSpent: number;
+    pointsBalance: number;
+    lifetimePoints: number;
+    pointsEarnedTotal: number;
+    pointsRedeemedTotal: number;
+  };
 };
 
 export default function AdminCustomersPage() {
@@ -43,38 +87,50 @@ export default function AdminCustomersPage() {
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setRefreshing(true);
-    try {
-      const res = await fetch("/api/customers", {
-        cache: "no-store",
-        credentials: "include",
-      });
-      const data = (await res.json().catch(() => null)) as {
-        customers?: CustomerRow[];
-        error?: string;
-      } | null;
+  const [ledgerCustomer, setLedgerCustomer] = useState<CustomerRow | null>(
+    null
+  );
+  const [ledger, setLedger] = useState<LedgerPayload | null>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
 
-      if (!res.ok) {
-        if (!opts?.silent) {
-          setLoadError(data?.error || `Could not load customers (${res.status}).`);
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setRefreshing(true);
+      try {
+        const res = await fetch("/api/customers", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const data = (await res.json().catch(() => null)) as {
+          customers?: CustomerRow[];
+          error?: string;
+        } | null;
+
+        if (!res.ok) {
+          if (!opts?.silent) {
+            setLoadError(
+              data?.error || `Could not load customers (${res.status}).`
+            );
+          }
+          return;
         }
-        return;
-      }
 
-      const list = Array.isArray(data?.customers) ? data.customers : [];
-      setRows(list);
-      setCustomers(list);
-      setLoadError(null);
-    } catch {
-      if (!opts?.silent) {
-        setLoadError("Could not load customers from Supabase.");
+        const list = Array.isArray(data?.customers) ? data.customers : [];
+        setRows(list);
+        setCustomers(list);
+        setLoadError(null);
+      } catch {
+        if (!opts?.silent) {
+          setLoadError("Could not load customers from Supabase.");
+        }
+      } finally {
+        setLoading(false);
+        if (!opts?.silent) setRefreshing(false);
       }
-    } finally {
-      setLoading(false);
-      if (!opts?.silent) setRefreshing(false);
-    }
-  }, [setCustomers]);
+    },
+    [setCustomers]
+  );
 
   useEffect(() => {
     if (authInitializing || !user || !canAccessAdmin(user.role)) return;
@@ -104,6 +160,31 @@ export default function AdminCustomersPage() {
   const handleOpenChange = (open: boolean) => {
     setDialogOpen(open);
     if (!open) resetForm();
+  };
+
+  const openLedger = async (customer: CustomerRow) => {
+    setLedgerCustomer(customer);
+    setLedger(null);
+    setLedgerError(null);
+    setLedgerLoading(true);
+    try {
+      const res = await fetch(`/api/customers/${customer.id}/ledger`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => null)) as
+        | (LedgerPayload & { error?: string })
+        | null;
+      if (!res.ok || !data?.customer) {
+        setLedgerError(data?.error || "Could not load customer ledger.");
+        return;
+      }
+      setLedger(data);
+    } catch {
+      setLedgerError("Could not load customer ledger.");
+    } finally {
+      setLedgerLoading(false);
+    }
   };
 
   const handleAddCustomer = async () => {
@@ -257,9 +338,11 @@ export default function AdminCustomersPage() {
           <>
             <div className="space-y-3 p-3 md:hidden">
               {customerList.map((customer) => (
-                <div
+                <button
                   key={customer.id}
-                  className="rounded-xl border border-border p-4"
+                  type="button"
+                  onClick={() => void openLedger(customer)}
+                  className="w-full rounded-xl border border-border p-4 text-left transition hover:border-sky/40 hover:bg-surface/60"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -267,13 +350,27 @@ export default function AdminCustomersPage() {
                         {customer.full_name}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {customer.email}
+                        {customer.phone ??
+                          customerEmailLabel(customer.email)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {customer.phone ?? "No phone"}
-                      </p>
+                      {customer.phone &&
+                        customer.email &&
+                        !isPhoneAuthEmail(customer.email) && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {customer.email}
+                          </p>
+                        )}
+                      {!customer.phone &&
+                        (!customer.email ||
+                          isPhoneAuthEmail(customer.email)) && (
+                          <p className="text-xs text-muted-foreground">
+                            No phone
+                          </p>
+                        )}
                     </div>
-                    <Badge variant={customer.is_active ? "default" : "secondary"}>
+                    <Badge
+                      variant={customer.is_active ? "default" : "secondary"}
+                    >
                       {customer.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </div>
@@ -297,7 +394,11 @@ export default function AdminCustomersPage() {
                       </p>
                     </div>
                   </div>
-                </div>
+                  <p className="mt-3 flex items-center justify-center gap-1.5 text-xs font-medium text-sky">
+                    <BookOpen className="h-3.5 w-3.5" />
+                    View ledger
+                  </p>
+                </button>
               ))}
             </div>
 
@@ -313,6 +414,7 @@ export default function AdminCustomersPage() {
                     <th className="px-5 py-3 font-medium">Orders</th>
                     <th className="px-5 py-3 font-medium">Total Spent</th>
                     <th className="px-5 py-3 font-medium">Status</th>
+                    <th className="px-5 py-3 font-medium">Ledger</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -322,7 +424,7 @@ export default function AdminCustomersPage() {
                         {customer.full_name}
                       </td>
                       <td className="px-5 py-3 text-muted-foreground">
-                        {customer.email}
+                        {customerEmailLabel(customer.email)}
                       </td>
                       <td className="px-5 py-3 text-muted-foreground">
                         {customer.phone ?? "—"}
@@ -341,10 +443,24 @@ export default function AdminCustomersPage() {
                       </td>
                       <td className="px-5 py-3">
                         <Badge
-                          variant={customer.is_active ? "default" : "secondary"}
+                          variant={
+                            customer.is_active ? "default" : "secondary"
+                          }
                         >
                           {customer.is_active ? "Active" : "Inactive"}
                         </Badge>
+                      </td>
+                      <td className="px-5 py-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="rounded-lg"
+                          onClick={() => void openLedger(customer)}
+                        >
+                          <BookOpen className="mr-1.5 h-3.5 w-3.5" />
+                          View
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -354,6 +470,189 @@ export default function AdminCustomersPage() {
           </>
         )}
       </div>
+
+      <Sheet
+        open={!!ledgerCustomer}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLedgerCustomer(null);
+            setLedger(null);
+            setLedgerError(null);
+          }
+        }}
+      >
+        <SheetContent className="w-full bg-surface sm:max-w-md">
+          {ledgerCustomer && (
+            <>
+              <SheetHeader>
+                <SheetTitle>{ledgerCustomer.full_name}</SheetTitle>
+                <SheetDescription className="text-sm">
+                  {[
+                    ledgerCustomer.phone,
+                    ledgerCustomer.email &&
+                    !isPhoneAuthEmail(ledgerCustomer.email)
+                      ? ledgerCustomer.email
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "No contact on file"}
+                </SheetDescription>
+              </SheetHeader>
+
+              <SheetBody className="space-y-4">
+                {ledgerLoading ? (
+                  <p className="py-16 text-center text-sm text-muted-foreground">
+                    Loading ledger…
+                  </p>
+                ) : ledgerError ? (
+                  <p className="py-16 text-center text-sm text-red-600">
+                    {ledgerError}
+                  </p>
+                ) : ledger ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="rounded-2xl bg-sky/10 px-3.5 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-sky">
+                          Points balance
+                        </p>
+                        <p className="mt-1 text-2xl font-bold tabular-nums text-navy">
+                          {formatPoints(ledger.summary.pointsBalance)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-green/10 px-3.5 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-green">
+                          Lifetime earned
+                        </p>
+                        <p className="mt-1 text-2xl font-bold tabular-nums text-navy">
+                          {formatPoints(ledger.summary.lifetimePoints)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white px-3.5 py-3 shadow-card">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Orders · spent
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-navy">
+                          {ledger.summary.orderCount} ·{" "}
+                          {formatCurrency(ledger.summary.totalSpent)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white px-3.5 py-3 shadow-card">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Redeemed
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-navy">
+                          {formatPoints(ledger.summary.pointsRedeemedTotal)} pts
+                        </p>
+                      </div>
+                    </div>
+
+                    <Tabs defaultValue="orders" className="space-y-3">
+                      <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl bg-white p-1 shadow-card">
+                        <TabsTrigger
+                          value="orders"
+                          className="rounded-lg data-[state=active]:bg-green data-[state=active]:text-white"
+                        >
+                          <ShoppingBag className="mr-1.5 h-3.5 w-3.5" />
+                          Orders ({ledger.orders.length})
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="points"
+                          className="rounded-lg data-[state=active]:bg-green data-[state=active]:text-white"
+                        >
+                          <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                          Points ({ledger.pointsLedger.length})
+                        </TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="orders" className="mt-0">
+                        {ledger.orders.length === 0 ? (
+                          <div className="rounded-2xl bg-white px-4 py-10 text-center shadow-card">
+                            <p className="text-sm text-muted-foreground">
+                              No orders yet.
+                            </p>
+                          </div>
+                        ) : (
+                          <Stagger className="space-y-2.5" fast>
+                            {ledger.orders.map((order) => (
+                              <StaggerItem key={order.id}>
+                                <div className="rounded-2xl bg-white p-3.5 shadow-card">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <p className="font-semibold text-navy">
+                                        #{order.order_number}
+                                      </p>
+                                      <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {formatDateTime(order.created_at)} ·{" "}
+                                        {order.order_type === "PICKUP"
+                                          ? "Pickup"
+                                          : "Delivery"}
+                                      </p>
+                                    </div>
+                                    <StatusBadge status={order.status} />
+                                  </div>
+                                  <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2.5 text-sm">
+                                    <span className="font-bold text-green">
+                                      {formatCurrency(order.total)}
+                                    </span>
+                                    <span className="text-xs font-medium text-sky">
+                                      +{formatPoints(order.points_earned)} pts
+                                      {order.points_used > 0
+                                        ? ` · −${formatPoints(order.points_used)} used`
+                                        : ""}
+                                    </span>
+                                  </div>
+                                </div>
+                              </StaggerItem>
+                            ))}
+                          </Stagger>
+                        )}
+                      </TabsContent>
+
+                      <TabsContent value="points" className="mt-0">
+                        {ledger.pointsLedger.length === 0 ? (
+                          <div className="rounded-2xl bg-white px-4 py-10 text-center shadow-card">
+                            <p className="text-sm text-muted-foreground">
+                              No points activity yet.
+                            </p>
+                          </div>
+                        ) : (
+                          <Stagger className="space-y-2.5" fast>
+                            {ledger.pointsLedger.map((tx) => (
+                              <StaggerItem key={tx.id}>
+                                <div className="flex items-start justify-between gap-3 rounded-2xl bg-white p-3.5 shadow-card">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-navy">
+                                      {tx.description || tx.type}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                      {tx.type} · {relativeTime(tx.created_at)}
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={cn(
+                                      "shrink-0 text-sm font-bold tabular-nums",
+                                      tx.points >= 0
+                                        ? "text-green"
+                                        : "text-red-600"
+                                    )}
+                                  >
+                                    {tx.points >= 0 ? "+" : ""}
+                                    {formatPoints(tx.points)}
+                                  </span>
+                                </div>
+                              </StaggerItem>
+                            ))}
+                          </Stagger>
+                        )}
+                      </TabsContent>
+                    </Tabs>
+                  </>
+                ) : null}
+              </SheetBody>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

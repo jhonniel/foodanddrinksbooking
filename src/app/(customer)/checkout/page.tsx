@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,31 +30,7 @@ import {
   formatDeliveryRateLabel,
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
-import type { Order, PaymentMethod } from "@/types";
-
-const DEMO_ADDRESSES = [
-  {
-    id: "addr-1",
-    label: "Home",
-    full_address: "42 Palm Avenue, Lahug, Cebu City",
-    latitude: 10.335,
-    longitude: 123.905,
-  },
-  {
-    id: "addr-2",
-    label: "Office",
-    full_address: "88 IT Park, Apas, Cebu City",
-    latitude: 10.33,
-    longitude: 123.898,
-  },
-  {
-    id: "addr-3",
-    label: "Condo",
-    full_address: "Mactan Newtown, Lapu-Lapu City",
-    latitude: 10.307,
-    longitude: 123.965,
-  },
-];
+import type { Address, Order, PaymentMethod } from "@/types";
 
 const PAYMENT_METHODS: {
   value: PaymentMethod;
@@ -87,20 +62,53 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((s) => s.clearCart);
   const { subtotal, deliveryQuote, deliveryFee, total } = useCartTotals();
 
-  const [selectedAddress, setSelectedAddress] = useState(DEMO_ADDRESSES[0].id);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [selectedAddress, setSelectedAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("GCASH");
   const [instructions, setInstructions] = useState("");
   const [placing, setPlacing] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   useEffect(() => {
-    const addr = DEMO_ADDRESSES.find((a) => a.id === selectedAddress);
+    let cancelled = false;
+    (async () => {
+      setAddressesLoading(true);
+      try {
+        const res = await fetch("/api/me/addresses", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const data = (await res.json().catch(() => null)) as {
+          addresses?: Address[];
+        } | null;
+        if (cancelled) return;
+        const list = data?.addresses ?? [];
+        setAddresses(list);
+        const preferred =
+          list.find((a) => a.is_default)?.id ?? list[0]?.id ?? "";
+        setSelectedAddress(preferred);
+      } catch {
+        if (!cancelled) setAddresses([]);
+      } finally {
+        if (!cancelled) setAddressesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const addr = addresses.find((a) => a.id === selectedAddress);
     if (!addr) return;
-    setDeliveryLocation(
-      { lat: addr.latitude, lng: addr.longitude },
-      addr.label
-    );
-  }, [selectedAddress, setDeliveryLocation]);
+    if (addr.latitude != null && addr.longitude != null) {
+      setDeliveryLocation(
+        { lat: addr.latitude, lng: addr.longitude },
+        addr.label
+      );
+    }
+  }, [selectedAddress, addresses, setDeliveryLocation]);
 
   if (items.length === 0) {
     return (
@@ -116,7 +124,7 @@ export default function CheckoutPage() {
     );
   }
 
-  const address = DEMO_ADDRESSES.find((a) => a.id === selectedAddress);
+  const address = addresses.find((a) => a.id === selectedAddress);
 
   const finishOrder = (order: Order, customerId: string) => {
     addOrder(order);
@@ -155,7 +163,16 @@ export default function CheckoutPage() {
       router.push("/login?next=/checkout");
       return;
     }
-    if (orderType === "DELIVERY" && !deliveryQuote.withinRadius) {
+    if (orderType === "DELIVERY" && !address) {
+      toast.error("Add a delivery address on your Profile first.");
+      return;
+    }
+    if (
+      orderType === "DELIVERY" &&
+      address?.latitude != null &&
+      address?.longitude != null &&
+      !deliveryQuote.withinRadius
+    ) {
       toast.error(
         `Sorry, this address is outside our ${DELIVERY_CONFIG.radiusKm} km delivery radius.`
       );
@@ -167,9 +184,10 @@ export default function CheckoutPage() {
       paymentMethod,
       addressId: address?.id,
       fullAddress: address?.full_address,
-      latitude: address?.latitude,
-      longitude: address?.longitude,
-      deliveryInstructions: instructions || undefined,
+      latitude: address?.latitude ?? undefined,
+      longitude: address?.longitude ?? undefined,
+      deliveryInstructions:
+        instructions || address?.delivery_instructions || undefined,
       items: items.map((item) => ({
         ...item,
         productImage: item.productImage ?? null,
@@ -307,58 +325,94 @@ export default function CheckoutPage() {
           </h2>
           {orderType === "DELIVERY" ? (
             <>
-              <RadioGroup
-                value={selectedAddress}
-                onValueChange={(v) => v && setSelectedAddress(v)}
-                className="space-y-3"
-              >
-                {DEMO_ADDRESSES.map((addr) => {
-                  const quote = calculateDeliveryFee(
-                    { lat: addr.latitude, lng: addr.longitude },
-                    subtotal
-                  );
-                  return (
-                    <label
-                      key={addr.id}
-                      className={cn(
-                        "flex cursor-pointer items-start gap-3 rounded-2xl border-2 p-4 transition-colors",
-                        selectedAddress === addr.id
-                          ? "border-green bg-green/5"
-                          : "border-border bg-white shadow-card",
-                        !quote.withinRadius && "opacity-70"
-                      )}
-                    >
-                      <RadioGroupItem value={addr.id} className="mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4 text-sky" />
-                            <span className="font-semibold text-navy">
-                              {addr.label}
-                            </span>
+              {addressesLoading ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading addresses…
+                </div>
+              ) : addresses.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-white p-5 text-center shadow-card">
+                  <MapPin className="mx-auto h-8 w-8 text-sky" />
+                  <p className="mt-2 text-sm font-medium text-navy">
+                    No saved addresses
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Add up to 3 delivery addresses on your Profile.
+                  </p>
+                  <Link
+                    href="/profile"
+                    className="mt-3 inline-flex h-10 items-center rounded-xl bg-green px-4 text-sm font-medium text-white hover:bg-green/90"
+                  >
+                    Manage addresses
+                  </Link>
+                </div>
+              ) : (
+                <RadioGroup
+                  value={selectedAddress}
+                  onValueChange={(v) => v && setSelectedAddress(v)}
+                  className="space-y-3"
+                >
+                  {addresses.map((addr) => {
+                    const hasCoords =
+                      addr.latitude != null && addr.longitude != null;
+                    const quote = hasCoords
+                      ? calculateDeliveryFee(
+                          { lat: addr.latitude!, lng: addr.longitude! },
+                          subtotal
+                        )
+                      : null;
+                    return (
+                      <label
+                        key={addr.id}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-3 rounded-2xl border-2 p-4 transition-colors",
+                          selectedAddress === addr.id
+                            ? "border-green bg-green/5"
+                            : "border-border bg-white shadow-card",
+                          quote && !quote.withinRadius && "opacity-70"
+                        )}
+                      >
+                        <RadioGroupItem value={addr.id} className="mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-sky" />
+                              <span className="font-semibold text-navy">
+                                {addr.label}
+                              </span>
+                              {addr.is_default && (
+                                <span className="text-[10px] font-semibold uppercase text-sky">
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                            {quote && (
+                              <span className="shrink-0 text-xs font-semibold text-navy">
+                                {quote.withinRadius
+                                  ? quote.isFree
+                                    ? "Free"
+                                    : formatCurrency(quote.fee)
+                                  : "Out of range"}
+                              </span>
+                            )}
                           </div>
-                          <span className="shrink-0 text-xs font-semibold text-navy">
-                            {quote.withinRadius
-                              ? quote.isFree
-                                ? "Free"
-                                : formatCurrency(quote.fee)
-                              : "Out of range"}
-                          </span>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {addr.full_address}
+                          </p>
+                          {quote && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {formatDistanceKm(quote.distanceKm)} from store · ~
+                              {quote.estimatedMinutes} min
+                              {!quote.withinRadius &&
+                                ` · max ${DELIVERY_CONFIG.radiusKm} km`}
+                            </p>
+                          )}
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {addr.full_address}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {formatDistanceKm(quote.distanceKm)} from store · ~
-                          {quote.estimatedMinutes} min
-                          {!quote.withinRadius &&
-                            ` · max ${DELIVERY_CONFIG.radiusKm} km`}
-                        </p>
-                      </div>
-                    </label>
-                  );
-                })}
-              </RadioGroup>
+                      </label>
+                    );
+                  })}
+                </RadioGroup>
+              )}
               <div>
                 <Label htmlFor="instructions">Delivery Instructions</Label>
                 <Textarea
@@ -382,14 +436,22 @@ export default function CheckoutPage() {
             <Button
               onClick={() => setStep(3)}
               disabled={
-                orderType === "DELIVERY" && !deliveryQuote.withinRadius
+                orderType === "DELIVERY" &&
+                (addresses.length === 0 ||
+                  !selectedAddress ||
+                  (deliveryQuote.withinRadius === false &&
+                    address?.latitude != null &&
+                    address?.longitude != null))
               }
               className="flex-1 rounded-xl bg-green hover:bg-green/90"
             >
               Continue
             </Button>
           </div>
-          {orderType === "DELIVERY" && !deliveryQuote.withinRadius && (
+          {orderType === "DELIVERY" &&
+            address?.latitude != null &&
+            address?.longitude != null &&
+            !deliveryQuote.withinRadius && (
             <p className="text-center text-xs text-destructive">
               Selected address is outside our {DELIVERY_CONFIG.radiusKm} km
               delivery area.

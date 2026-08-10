@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import { ORDER_STATUS_COLORS, ORDER_STATUS_LABELS } from "@/lib/constants";
 import type { OrderStatus, PaymentStatus } from "@/types";
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 
 const variants = {
   default: "bg-slate-100 text-navy",
@@ -46,9 +46,7 @@ export function StatusBadge({ status, className, label }: StatusBadgeProps) {
     status === "IN_TRANSIT";
 
   return (
-    <motion.span
-      initial={reduce ? false : { opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
+    <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize",
         variants[variant],
@@ -62,6 +60,6 @@ export function StatusBadge({ status, className, label }: StatusBadgeProps) {
         </span>
       )}
       {display}
-    </motion.span>
+    </span>
   );
 }

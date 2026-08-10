@@ -20,6 +20,7 @@ import {
   Settings,
   Tags,
   Wallet,
+  History,
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
@@ -35,11 +36,12 @@ import {
 
 const primary = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/orders", label: "Orders", icon: ClipboardList },
+  { href: "/admin/orders", label: "Queue", icon: ClipboardList },
   { href: "/admin/products", label: "Products", icon: Package },
 ];
 
 const moreLinks = [
+  { href: "/admin/order-history", label: "Order History", icon: History },
   { href: "/admin/categories", label: "Categories", icon: Tags },
   { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
   { href: "/admin/customers", label: "Customers", icon: Users },

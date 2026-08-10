@@ -13,11 +13,43 @@ export async function getRewards(): Promise<Reward[]> {
     .sort((a, b) => a.sort_order - b.sort_order);
 }
 
+/**
+ * Amount that can earn loyalty points / count toward promo & free-delivery
+ * minimums: product subtotal after discounts. Delivery fee is never included.
+ */
+export function getPointsEarnBase(
+  subtotal: number,
+  discount = 0,
+  pointsDiscount = 0
+): number {
+  return Math.max(0, subtotal - discount - pointsDiscount);
+}
+
 export function calculatePointsEarned(
   amount: number,
   settings = LOYALTY_SETTINGS
 ): number {
-  return Math.floor(amount * settings.points_per_peso);
+  if (!settings.is_active) return 0;
+  return Math.floor(Math.max(0, amount) * settings.points_per_peso);
+}
+
+/** Points from an order’s item total (excludes delivery fee). */
+export function calculateOrderPointsEarned(
+  input: {
+    subtotal: number;
+    discount?: number;
+    pointsDiscount?: number;
+  },
+  settings = LOYALTY_SETTINGS
+): number {
+  return calculatePointsEarned(
+    getPointsEarnBase(
+      input.subtotal,
+      input.discount ?? 0,
+      input.pointsDiscount ?? 0
+    ),
+    settings
+  );
 }
 
 export function calculatePointsDiscount(

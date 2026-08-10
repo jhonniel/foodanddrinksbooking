@@ -8,16 +8,26 @@ import { useCartTotals } from "@/hooks/useCartTotals";
 import { formatCurrency } from "@/lib/utils/format";
 import { AnimatePresence, motion } from "framer-motion";
 
-const HIDDEN_ON = ["/cart", "/checkout"];
+const HIDDEN_ON = ["/cart", "/checkout", "/profile"];
+
+/** Product detail already has a fixed Add to Cart bar — don't stack View Cart on it. */
+function shouldHideStickyCart(pathname: string): boolean {
+  if (HIDDEN_ON.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return true;
+  }
+  // /menu/[slug] — not the menu list root
+  if (pathname.startsWith("/menu/") && pathname !== "/menu") {
+    return true;
+  }
+  return false;
+}
 
 export function StickyCartButton() {
   const pathname = usePathname();
   const items = useCartStore((s) => s.items);
   const { itemCount, total } = useCartTotals();
 
-  const hidden = HIDDEN_ON.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
+  const hidden = shouldHideStickyCart(pathname);
 
   return (
     <AnimatePresence>

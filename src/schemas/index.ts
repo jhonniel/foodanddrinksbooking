@@ -1,23 +1,29 @@
 import { z } from "zod";
+import { normalizePhoneDigits } from "@/lib/auth/phone";
 
 export const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
+  email: z
+    .string()
+    .min(3, "Enter your phone number or email")
+    .refine((value) => {
+      const trimmed = value.trim();
+      if (trimmed.includes("@")) {
+        return z.string().email().safeParse(trimmed).success;
+      }
+      return normalizePhoneDigits(trimmed) != null;
+    }, "Enter a valid phone number or email"),
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 export const registerSchema = z
   .object({
     fullName: z.string().min(2, "Name must be at least 2 characters"),
-    email: z.string().email("Enter a valid email address"),
     phone: z
       .string()
-      .optional()
+      .min(10, "Enter your mobile number")
       .refine(
-        (v) =>
-          v == null ||
-          v.trim() === "" ||
-          (v.trim().length >= 10 && /^[\d+\-\s()]+$/.test(v)),
-        "Enter a valid phone number"
+        (v) => normalizePhoneDigits(v) != null,
+        "Enter a valid mobile number"
       ),
     password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string(),

@@ -20,14 +20,14 @@ export function Logo({
   size = "md",
 }: LogoProps) {
   const sizes = {
-    sm: { img: 32, text: "text-sm", box: "h-8 w-8" },
-    md: { img: 36, text: "text-base", box: "h-9 w-9" },
-    lg: { img: 56, text: "text-xl", box: "h-14 w-14" },
+    sm: { img: 40, text: "text-base", box: "h-10 w-10" },
+    md: { img: 48, text: "text-lg", box: "h-12 w-12" },
+    lg: { img: 72, text: "text-2xl", box: "h-[4.5rem] w-[4.5rem]" },
   };
   const s = sizes[size];
 
   const content = (
-    <span className={cn("inline-flex items-center gap-2.5", className)}>
+    <span className={cn("inline-flex items-center gap-3", className)}>
       <span className={cn("relative shrink-0 overflow-hidden", s.box)}>
         <Image
           src={LOGO_SRC}

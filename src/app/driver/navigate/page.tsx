@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Navigation, MapPin } from "lucide-react";
+import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { getMapProvider, openExternalNavigation } from "@/lib/maps/provider";
@@ -14,6 +15,7 @@ function NavigateContent() {
   const deliveryId = searchParams.get("id");
   const deliveries = useAppStore((s) => s.deliveries);
   const updateDeliveryStatus = useAppStore((s) => s.updateDeliveryStatus);
+  const [busy, setBusy] = useState(false);
 
   const delivery = deliveryId
     ? deliveries.find((d) => d.id === deliveryId)
@@ -37,15 +39,29 @@ function NavigateContent() {
     lng: delivery.customer_longitude ?? STORE_LOCATION.lng,
   };
 
+  const apply = async (status: "IN_TRANSIT" | "ARRIVED", msg: string) => {
+    setBusy(true);
+    try {
+      await updateDeliveryStatus(delivery.id, status);
+      toast.success(msg);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not update status."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleNavigate = () => {
     openExternalNavigation(center);
     if (delivery.status === "PICKED_UP") {
-      updateDeliveryStatus(delivery.id, "IN_TRANSIT");
+      void apply("IN_TRANSIT", "En route to customer");
     }
   };
 
   const handleArrived = () => {
-    updateDeliveryStatus(delivery.id, "ARRIVED");
+    void apply("ARRIVED", "Marked as arrived");
   };
 
   return (
@@ -66,6 +82,7 @@ function NavigateContent() {
           size="lg"
           className="h-14 w-full bg-sky text-base hover:bg-sky/90"
           onClick={handleNavigate}
+          disabled={busy}
         >
           <Navigation className="mr-2 h-5 w-5" />
           Navigate
@@ -75,7 +92,11 @@ function NavigateContent() {
           variant="outline"
           className="h-14 w-full text-base"
           onClick={handleArrived}
-          disabled={delivery.status === "ARRIVED" || delivery.status === "DELIVERED"}
+          disabled={
+            busy ||
+            delivery.status === "ARRIVED" ||
+            delivery.status === "DELIVERED"
+          }
         >
           <MapPin className="mr-2 h-5 w-5" />
           Mark Arrived

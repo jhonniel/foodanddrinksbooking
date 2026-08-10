@@ -9,7 +9,9 @@ import { useDataStore } from "@/stores/data";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Stagger, StaggerItem } from "@/components/motion";
 import { formatCurrency, relativeTime } from "@/lib/utils/format";
+import { filterDeliveriesForDriver } from "@/services/deliveryService";
 import type { DeliveryStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -31,25 +33,16 @@ export default function DriverDeliveriesPage() {
   const driverRecord =
     drivers.find((d) => d.profile_id === user?.id || d.id === user?.id) ??
     null;
-  const driverIds = new Set(
-    [user?.id, driverRecord?.id, driverRecord?.profile_id].filter(
-      (id): id is string => typeof id === "string" && id.length > 0
-    )
-  );
-
-  const matchesDriver = (id?: string | null) =>
-    !!id && driverIds.has(id);
 
   const myDeliveries = useMemo(
     () =>
-      deliveries.filter(
-        (d) =>
-          matchesDriver(d.driver_id) ||
-          matchesDriver(d.driver?.id) ||
-          matchesDriver(d.driver?.profile_id)
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deliveries, user?.id, driverRecord?.id, driverRecord?.profile_id]
+      filterDeliveriesForDriver({
+        deliveries,
+        orders,
+        user,
+        driverRecord,
+      }),
+    [deliveries, orders, user, driverRecord]
   );
 
   const filtered = useMemo(() => {
@@ -99,38 +92,41 @@ export default function DriverDeliveriesPage() {
           className="rounded-2xl bg-white shadow-card"
         />
       ) : (
-        <div className="space-y-3">
+        <Stagger className="space-y-3" fast>
           {filtered.map((delivery) => {
             const order = orders.find((o) => o.id === delivery.order_id);
             return (
-              <Link
-                key={delivery.id}
-                href={`/driver/deliveries/${delivery.id}`}
-                className="block rounded-2xl bg-white p-4 shadow-card transition hover:shadow-soft"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-bold text-navy">
-                      #{order?.order_number ?? "—"}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {order?.customer?.full_name}
-                    </p>
-                  </div>
-                  <StatusBadge status={delivery.status} />
+              <StaggerItem key={delivery.id}>
+                <div className="rounded-2xl bg-white shadow-card">
+                  <Link
+                    href={`/driver/deliveries/${delivery.id}`}
+                    className="block p-4"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-bold text-navy">
+                          #{order?.order_number ?? "—"}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {order?.customer?.full_name}
+                        </p>
+                      </div>
+                      <StatusBadge status={delivery.status} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm">
+                      <span className="font-medium text-green">
+                        {order ? formatCurrency(order.total) : "—"}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {relativeTime(delivery.updated_at)}
+                      </span>
+                    </div>
+                  </Link>
                 </div>
-                <div className="mt-3 flex items-center justify-between text-sm">
-                  <span className="font-medium text-green">
-                    {order ? formatCurrency(order.total) : "—"}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {relativeTime(delivery.updated_at)}
-                  </span>
-                </div>
-              </Link>
+              </StaggerItem>
             );
           })}
-        </div>
+        </Stagger>
       )}
     </div>
   );

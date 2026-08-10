@@ -217,7 +217,11 @@ export async function ensureDriverForProfile(
 }
 
 function canBeDriverRole(role: string): boolean {
-  return role === "DRIVER" || role === "SUPER_ADMIN" || role === "ADMIN";
+  return role === "DRIVER";
+}
+
+export function isDriverRoleAccount(driver: Driver): boolean {
+  return driver.profile?.role === "DRIVER";
 }
 
 export async function updateDriverStatusInSupabase(
@@ -277,9 +281,9 @@ export async function listDriversFromSupabase(): Promise<Driver[] | null> {
     .order("created_at", { ascending: false });
 
   if (!withJoin.error && withJoin.data) {
-    return (withJoin.data ?? []).map((row) =>
-      mapDriverRow(row as unknown as Record<string, unknown>)
-    );
+    return (withJoin.data ?? [])
+      .map((row) => mapDriverRow(row as unknown as Record<string, unknown>))
+      .filter(isDriverRoleAccount);
   }
 
   console.warn(
@@ -302,5 +306,77 @@ export async function listDriversFromSupabase(): Promise<Driver[] | null> {
       attachProfile(mapDriverRow(row as unknown as Record<string, unknown>))
     )
   );
-  return rows;
+  return rows.filter(isDriverRoleAccount);
+}
+
+export async function setDriverActiveInSupabase(
+  driverId: string,
+  active: boolean
+): Promise<{ driver?: Driver; error?: string }> {
+  const client = await getAdminClient();
+  if (!client) {
+    return {
+      error:
+        "Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it in .env.local / Vercel.",
+    };
+  }
+
+  const existing = await client
+    .from("drivers")
+    .select(DRIVER_COLUMNS)
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (existing.error || !existing.data) {
+    return { error: existing.error?.message || "Driver not found." };
+  }
+
+  const profileId = String(existing.data.profile_id);
+  const now = new Date().toISOString();
+
+  const { error: driverError } = await client
+    .from("drivers")
+    .update({
+      is_active: active,
+      status: active ? "OFFLINE" : "SUSPENDED",
+      updated_at: now,
+    })
+    .eq("id", driverId);
+
+  if (driverError) return { error: driverError.message };
+
+  const { error: profileError } = await client
+    .from("profiles")
+    .update({ is_active: active, updated_at: now })
+    .eq("id", profileId);
+
+  if (profileError) {
+    console.warn("[drivers] profile is_active update:", profileError.message);
+  }
+
+  // Ban / unban Auth user so deactivated drivers cannot sign in
+  try {
+    if (active) {
+      await client.auth.admin.updateUserById(profileId, { ban_duration: "none" });
+    } else {
+      await client.auth.admin.updateUserById(profileId, {
+        ban_duration: "876000h",
+      });
+    }
+  } catch (err) {
+    console.warn("[drivers] auth ban update failed", err);
+  }
+
+  const refreshed = await fetchDriverByProfileId(profileId);
+  if (!refreshed) {
+    return {
+      driver: {
+        ...mapDriverRow(existing.data as unknown as Record<string, unknown>),
+        is_active: active,
+        status: active ? "OFFLINE" : "SUSPENDED",
+        updated_at: now,
+      },
+    };
+  }
+  return { driver: refreshed };
 }

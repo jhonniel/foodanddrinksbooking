@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartItem, CartItemAddon, CartItemOption } from "@/types";
-import { DELIVERY_CONFIG, LOYALTY_SETTINGS } from "@/data/demo";
+import { DELIVERY_CONFIG } from "@/data/demo";
+import { calculateOrderPointsEarned } from "@/services/loyaltyService";
 import {
   calculateDeliveryFee,
   type DeliveryQuote,
@@ -156,8 +157,14 @@ export const useCartStore = create<CartState>()(
         );
       },
 
-      pointsEarned: () =>
-        Math.floor(get().total() * LOYALTY_SETTINGS.points_per_peso),
+      pointsEarned: () => {
+        const { promoDiscount, pointsDiscount, subtotal } = get();
+        return calculateOrderPointsEarned({
+          subtotal: subtotal(),
+          discount: promoDiscount,
+          pointsDiscount,
+        });
+      },
     }),
     { name: "island-coolers-cart-v2" }
   )

@@ -5,7 +5,11 @@ import {
   getSessionProfileFromRequest,
   assertRole,
 } from "@/lib/auth/server";
-import { canAccessAdmin, isSupabaseConfigured } from "@/lib/auth/config";
+import {
+  canAccessAdmin,
+  canAccessDriver,
+  isSupabaseConfigured,
+} from "@/lib/auth/config";
 import {
   createOrderInSupabase,
   fetchOrdersFromSupabase,
@@ -142,8 +146,16 @@ export async function GET(request: NextRequest) {
     }
 
     const isStaff = canAccessAdmin(profile.role);
+    const isDriverOnly =
+      !isStaff && canAccessDriver(profile.role) && profile.role === "DRIVER";
+
+    // Staff → all orders; drivers → assigned to them; customers → own orders
     const snapshot = await fetchOrdersFromSupabase(
-      isStaff ? undefined : { customerId: profile.id }
+      isStaff
+        ? undefined
+        : isDriverOnly
+          ? { driverProfileId: profile.id }
+          : { customerId: profile.id }
     );
 
     if (!snapshot) {

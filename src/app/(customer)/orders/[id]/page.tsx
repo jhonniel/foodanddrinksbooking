@@ -19,7 +19,6 @@ import { useAuthStore } from "@/stores/auth";
 import { useCartStore } from "@/stores/cart";
 import { getMapProvider } from "@/lib/maps/provider";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
-import { trackingHeadline } from "@/lib/orderTracking";
 import { customerCanCancelOrder } from "@/lib/constants";
 
 export default function OrderDetailPage() {
@@ -170,17 +169,6 @@ export default function OrderDetailPage() {
         </div>
         <StatusBadge status={order.status} />
       </div>
-
-      {order.status === "DELIVERED" && (
-        <div className="rounded-2xl bg-green/10 p-4 text-center">
-          <p className="text-lg font-bold text-green">
-            {trackingHeadline(order.status, order.order_type)}!
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            You earned {order.points_earned} points
-          </p>
-        </div>
-      )}
 
       <OrderTrackingStepper order={order} />
 

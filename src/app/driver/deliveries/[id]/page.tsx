@@ -21,12 +21,33 @@ const STATUS_FLOW: {
   status: DeliveryStatus;
   label: string;
   next: DeliveryStatus;
+  success?: string;
 }[] = [
-  { status: "ASSIGNED", label: "Accept Delivery", next: "ACCEPTED" },
-  { status: "ACCEPTED", label: "Mark Picked Up", next: "PICKED_UP" },
-  { status: "PICKED_UP", label: "Start Navigation", next: "IN_TRANSIT" },
-  { status: "IN_TRANSIT", label: "Mark Arrived", next: "ARRIVED" },
-  { status: "ARRIVED", label: "Mark Delivered", next: "DELIVERED" },
+  {
+    status: "ASSIGNED",
+    label: "Accept Delivery",
+    next: "ACCEPTED",
+    success: "Delivery accepted",
+  },
+  // PICKED_UP is set by store staff — driver waits after accept
+  {
+    status: "PICKED_UP",
+    label: "Start Navigation",
+    next: "IN_TRANSIT",
+    success: "En route to customer",
+  },
+  {
+    status: "IN_TRANSIT",
+    label: "Mark Arrived",
+    next: "ARRIVED",
+    success: "Arrived at customer",
+  },
+  {
+    status: "ARRIVED",
+    label: "Mark Delivered",
+    next: "DELIVERED",
+    success: "Delivery completed!",
+  },
 ];
 
 export default function DriverDeliveryDetailPage({
@@ -40,11 +61,13 @@ export default function DriverDeliveryDetailPage({
   const updateDeliveryStatus = useAppStore((s) => s.updateDeliveryStatus);
   const [pin, setPin] = useState("");
   const [showPinInput, setShowPinInput] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const delivery = deliveries.find((d) => d.id === id);
-  const order = delivery
-    ? orders.find((o) => o.id === delivery.order_id)
-    : null;
+  const order =
+    delivery?.order ??
+    (delivery ? orders.find((o) => o.id === delivery.order_id) : null) ??
+    null;
 
   if (!delivery || !order) {
     return (
@@ -52,7 +75,10 @@ export default function DriverDeliveryDetailPage({
         <p className="text-muted-foreground">Delivery not found</p>
         <Link
           href="/driver/deliveries"
-          className={cn(buttonVariants({ variant: "outline" }), "mt-4 inline-flex")}
+          className={cn(
+            buttonVariants({ variant: "outline" }),
+            "mt-4 inline-flex"
+          )}
         >
           Back to deliveries
         </Link>
@@ -62,6 +88,20 @@ export default function DriverDeliveryDetailPage({
 
   const currentStep = STATUS_FLOW.find((s) => s.status === delivery.status);
   const customerPhone = order.customer?.phone;
+
+  const applyStatus = async (next: DeliveryStatus, successMsg?: string) => {
+    setBusy(true);
+    try {
+      await updateDeliveryStatus(delivery.id, next);
+      toast.success(successMsg || "Status updated");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not update delivery status."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleNavigate = () => {
     if (
@@ -76,7 +116,7 @@ export default function DriverDeliveryDetailPage({
         order.delivery_address_snapshot?.full_address
       );
       if (delivery.status === "PICKED_UP") {
-        updateDeliveryStatus(delivery.id, "IN_TRANSIT");
+        void applyStatus("IN_TRANSIT", "En route to customer");
       }
     } else {
       toast.error("Customer location not available");
@@ -84,7 +124,7 @@ export default function DriverDeliveryDetailPage({
   };
 
   const handleAction = () => {
-    if (!currentStep) return;
+    if (!currentStep || busy) return;
 
     if (currentStep.next === "DELIVERED") {
       if (!showPinInput) {
@@ -102,10 +142,7 @@ export default function DriverDeliveryDetailPage({
       return;
     }
 
-    updateDeliveryStatus(delivery.id, currentStep.next);
-    if (currentStep.next === "DELIVERED") {
-      toast.success("Delivery completed!");
-    }
+    void applyStatus(currentStep.next, currentStep.success);
   };
 
   return (
@@ -210,6 +247,7 @@ export default function DriverDeliveryDetailPage({
               variant="outline"
               className="h-14 w-full text-base"
               onClick={handleNavigate}
+              disabled={busy}
             >
               <Navigation className="mr-2 h-5 w-5" />
               Navigate
@@ -217,16 +255,29 @@ export default function DriverDeliveryDetailPage({
           </>
         )}
 
+        {delivery.status === "ACCEPTED" && (
+          <div className="rounded-2xl bg-amber-50 p-4 text-center">
+            <p className="font-semibold text-amber-900">Waiting for pickup</p>
+            <p className="mt-1 text-sm text-amber-800">
+              Go to the store. Staff will mark this order as picked up, then you
+              can start navigation.
+            </p>
+          </div>
+        )}
+
         {currentStep && delivery.status !== "DELIVERED" && (
           <Button
             size="lg"
             className="h-14 w-full bg-green text-base hover:bg-green/90"
             onClick={handleAction}
+            disabled={busy}
           >
             <CheckCircle className="mr-2 h-5 w-5" />
-            {showPinInput && currentStep.next === "DELIVERED"
-              ? "Confirm Delivery"
-              : currentStep.label}
+            {busy
+              ? "Saving…"
+              : showPinInput && currentStep.next === "DELIVERED"
+                ? "Confirm Delivery"
+                : currentStep.label}
           </Button>
         )}
 

@@ -15,12 +15,19 @@ import {
 import { STORE_LOCATION } from "@/data/demo";
 import { calculateDeliveryFee } from "@/lib/delivery/pricing";
 import { getCartItemPrice } from "@/stores/cart";
-import { LOYALTY_SETTINGS } from "@/data/demo";
+import { calculateOrderPointsEarned } from "@/services/loyaltyService";
+import {
+  creditPointsForDeliveredOrder,
+  recordPointsRedeemedForOrder,
+} from "@/lib/supabase/loyalty";
 import { processPayment } from "@/lib/payments/provider";
 import { generateIdempotencyKey } from "@/lib/utils/format";
 import type {
   CartItem,
   DeliveryOrder,
+  Driver,
+  DriverStatus,
+  DeliveryStatus,
   Order,
   OrderItem,
   OrderStatus,
@@ -92,6 +99,31 @@ function mapOrderItem(row: Record<string, unknown>): OrderItem {
 }
 
 function mapDelivery(row: Record<string, unknown>): DeliveryOrder {
+  const driverRaw = row.driver;
+  const driverRow = Array.isArray(driverRaw) ? driverRaw[0] : driverRaw;
+  let driver: Driver | undefined;
+  if (driverRow && typeof driverRow === "object") {
+    const d = driverRow as Record<string, unknown>;
+    const profileRaw = d.profile;
+    const profileRow = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
+    driver = {
+      id: String(d.id),
+      profile_id: String(d.profile_id),
+      vehicle_type: String(d.vehicle_type ?? "Motorcycle"),
+      vehicle_number: (d.vehicle_number as string | null) ?? null,
+      license_number: (d.license_number as string | null) ?? null,
+      status: (d.status as DriverStatus) || "OFFLINE",
+      rating: Number(d.rating ?? 5),
+      total_deliveries: Number(d.total_deliveries ?? 0),
+      is_active: Boolean(d.is_active ?? true),
+      created_at: String(d.created_at ?? new Date().toISOString()),
+      updated_at: String(d.updated_at ?? new Date().toISOString()),
+      profile: profileRow
+        ? (profileRow as Profile)
+        : undefined,
+    };
+  }
+
   return {
     id: String(row.id),
     order_id: String(row.order_id),
@@ -117,6 +149,7 @@ function mapDelivery(row: Record<string, unknown>): DeliveryOrder {
     delivered_at: (row.delivered_at as string | null) ?? null,
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
+    driver,
   };
 }
 
@@ -180,7 +213,17 @@ const ORDER_SELECT = `
     order_item_options (*),
     order_item_addons (*)
   ),
-  delivery_orders (*)
+  delivery_orders (
+    *,
+    driver:drivers!driver_id (
+      id, profile_id, vehicle_type, vehicle_number, license_number,
+      status, rating, total_deliveries, is_active, created_at, updated_at,
+      profile:profiles!profile_id (
+        id, email, full_name, phone, avatar_url, role, is_active,
+        points_balance, lifetime_points, created_at, updated_at
+      )
+    )
+  )
 `;
 
 export async function cancelStalePendingOrdersInSupabase(): Promise<Order[]> {
@@ -221,6 +264,8 @@ export async function cancelStalePendingOrdersInSupabase(): Promise<Order[]> {
 
 export async function fetchOrdersFromSupabase(options?: {
   customerId?: string;
+  /** Profile id of the signed-in driver — returns only their assigned orders. */
+  driverProfileId?: string;
 }): Promise<{
   orders: Order[];
   deliveries: DeliveryOrder[];
@@ -231,6 +276,59 @@ export async function fetchOrdersFromSupabase(options?: {
   if (!client) return null;
 
   const autoCancelled = await cancelStalePendingOrdersInSupabase();
+
+  // Drivers: match delivery_orders.driver_id (drivers.id) and/or orders.driver_id (profiles.id)
+  if (options?.driverProfileId) {
+    const { data: driverRow } = await client
+      .from("drivers")
+      .select("id")
+      .eq("profile_id", options.driverProfileId)
+      .maybeSingle();
+
+    const orderIdSet = new Set<string>();
+
+    if (driverRow?.id) {
+      const { data: deliveryRows } = await client
+        .from("delivery_orders")
+        .select("order_id")
+        .eq("driver_id", driverRow.id as string);
+      for (const row of deliveryRows ?? []) {
+        if (row.order_id) orderIdSet.add(String(row.order_id));
+      }
+    }
+
+    const { data: byProfile } = await client
+      .from("orders")
+      .select("id")
+      .eq("driver_id", options.driverProfileId);
+    for (const row of byProfile ?? []) {
+      if (row.id) orderIdSet.add(String(row.id));
+    }
+
+    if (orderIdSet.size === 0) {
+      return { orders: [], deliveries: [], autoCancelled };
+    }
+
+    const { data, error } = await client
+      .from("orders")
+      .select(ORDER_SELECT)
+      .in("id", Array.from(orderIdSet))
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("[orders] fetch (driver) failed:", error.message);
+      return null;
+    }
+
+    const orders = ((data ?? []) as unknown as DbOrderRow[]).map(mapOrder);
+    const deliveries: DeliveryOrder[] = [];
+    for (const o of orders) {
+      if (!o.delivery) continue;
+      deliveries.push({ ...o.delivery, order: o });
+    }
+
+    return { orders, deliveries, autoCancelled };
+  }
 
   let query = client
     .from("orders")
@@ -248,9 +346,11 @@ export async function fetchOrdersFromSupabase(options?: {
   }
 
   const orders = ((data ?? []) as unknown as DbOrderRow[]).map(mapOrder);
-  const deliveries = orders
-    .map((o) => o.delivery)
-    .filter((d): d is DeliveryOrder => Boolean(d));
+  const deliveries: DeliveryOrder[] = [];
+  for (const o of orders) {
+    if (!o.delivery) continue;
+    deliveries.push({ ...o.delivery, order: o });
+  }
 
   return { orders, deliveries, autoCancelled };
 }
@@ -382,7 +482,11 @@ export async function createOrderInSupabase(input: {
     resolvedItems.push({ ...item, resolvedProductId: productId });
   }
 
-  const pointsEarned = Math.floor(total * LOYALTY_SETTINGS.points_per_peso);
+  const pointsEarned = calculateOrderPointsEarned({
+    subtotal: input.subtotal,
+    discount: input.discount,
+    pointsDiscount: input.pointsDiscount,
+  });
 
   const { data: orderRow, error: orderError } = await client
     .from("orders")
@@ -470,6 +574,16 @@ export async function createOrderInSupabase(input: {
   if (!loaded) {
     return { error: "Order created but could not be reloaded." };
   }
+
+  if (input.pointsUsed > 0) {
+    await recordPointsRedeemedForOrder(client, {
+      id: loaded.order.id,
+      customer_id: loaded.order.customer_id,
+      order_number: loaded.order.order_number,
+      points_used: input.pointsUsed,
+    });
+  }
+
   return { order: { ...loaded.order, customer: input.customer } };
 }
 
@@ -499,6 +613,20 @@ export async function updateOrderStatusInSupabase(
 
   const loaded = await fetchOrderByIdFromSupabase(orderId);
   if (!loaded) return { error: "Order updated but could not be reloaded." };
+
+  if (status === "DELIVERED") {
+    await creditPointsForDeliveredOrder(client, {
+      id: loaded.order.id,
+      customer_id: loaded.order.customer_id,
+      order_number: loaded.order.order_number,
+      points_earned: loaded.order.points_earned,
+      status: loaded.order.status,
+      subtotal: loaded.order.subtotal,
+      discount: loaded.order.discount,
+      points_discount: loaded.order.points_discount,
+    });
+  }
+
   return { order: loaded.order };
 }
 
@@ -515,6 +643,8 @@ export async function assignDriverInSupabase(input: {
   if (!loaded) return { error: "Order not found." };
 
   const order = loaded.order;
+  const existingDelivery = loaded.delivery;
+  const previousDriverId = existingDelivery?.driver_id ?? null;
   const now = new Date().toISOString();
   const lat = order.delivery_address_snapshot?.latitude;
   const lng = order.delivery_address_snapshot?.longitude;
@@ -543,21 +673,65 @@ export async function assignDriverInSupabase(input: {
     }
   }
 
+  // Resolve profile_id for orders.driver_id (FK → profiles.id, not drivers.id)
+  const { data: assignedDriver } = await client
+    .from("drivers")
+    .select("id, profile_id")
+    .eq("id", driverRowId)
+    .maybeSingle();
+
+  const profileDriverId =
+    (assignedDriver?.profile_id as string | undefined) ||
+    (isUuid(input.driverProfileId ?? "")
+      ? input.driverProfileId
+      : undefined) ||
+    null;
+
+  // Free previous driver when reassigning
+  if (previousDriverId && previousDriverId !== driverRowId) {
+    const { data: otherActive } = await client
+      .from("delivery_orders")
+      .select("id")
+      .eq("driver_id", previousDriverId)
+      .neq("order_id", input.orderId)
+      .not("status", "in", "(DELIVERED,CANCELLED)")
+      .limit(1);
+    if (!otherActive?.length) {
+      await client
+        .from("drivers")
+        .update({ status: "ONLINE", updated_at: now })
+        .eq("id", previousDriverId);
+    }
+  }
+
+  await client
+    .from("drivers")
+    .update({ status: "BUSY", updated_at: now })
+    .eq("id", driverRowId);
+
   const deliveryPayload = {
     order_id: input.orderId,
     driver_id: driverRowId,
     status: "ASSIGNED" as const,
-    customer_latitude: lat ?? null,
-    customer_longitude: lng ?? null,
+    customer_latitude: lat ?? existingDelivery?.customer_latitude ?? null,
+    customer_longitude: lng ?? existingDelivery?.customer_longitude ?? null,
     store_latitude: STORE_LOCATION.lat,
     store_longitude: STORE_LOCATION.lng,
     estimated_arrival: new Date(
       Date.now() + (quote?.estimatedMinutes ?? 30) * 60000
     ).toISOString(),
-    distance_km: quote?.distanceKm ?? null,
-    delivery_fee: order.delivery_fee ?? quote?.fee ?? 0,
-    delivery_pin: String(Math.floor(1000 + Math.random() * 9000)),
+    distance_km: quote?.distanceKm ?? existingDelivery?.distance_km ?? null,
+    delivery_fee:
+      order.delivery_fee ?? quote?.fee ?? existingDelivery?.delivery_fee ?? 0,
+    // Keep PIN on reassign so customer instructions stay valid
+    delivery_pin:
+      existingDelivery?.delivery_pin ??
+      String(Math.floor(1000 + Math.random() * 9000)),
     assigned_at: now,
+    accepted_at: null,
+    picked_up_at: null,
+    arrived_at: null,
+    delivered_at: null,
     updated_at: now,
   };
 
@@ -571,12 +745,11 @@ export async function assignDriverInSupabase(input: {
     return { error: deliveryError.message };
   }
 
-  const profileDriverId = input.driverProfileId || input.driverId;
   const { error: orderError } = await client
     .from("orders")
     .update({
       status: "ASSIGNED",
-      driver_id: isUuid(profileDriverId) ? profileDriverId : null,
+      driver_id: profileDriverId,
       updated_at: now,
     })
     .eq("id", input.orderId);
@@ -586,6 +759,148 @@ export async function assignDriverInSupabase(input: {
   const refreshed = await fetchOrderByIdFromSupabase(input.orderId);
   return {
     order: refreshed?.order,
-    delivery: deliveryRow ? mapDelivery(deliveryRow) : refreshed?.delivery ?? undefined,
+    delivery: deliveryRow
+      ? mapDelivery(deliveryRow)
+      : refreshed?.delivery ?? undefined,
+  };
+}
+
+const DELIVERY_TO_ORDER_STATUS: Partial<Record<DeliveryStatus, OrderStatus>> = {
+  ACCEPTED: "ASSIGNED",
+  PICKED_UP: "PICKED_UP",
+  IN_TRANSIT: "OUT_FOR_DELIVERY",
+  ARRIVED: "ARRIVED",
+  DELIVERED: "DELIVERED",
+  CANCELLED: "CANCELLED",
+};
+
+export async function updateDeliveryStatusInSupabase(input: {
+  deliveryId: string;
+  status: DeliveryStatus;
+  /** Optional — when provided, enforces the caller owns this delivery. */
+  actorProfileId?: string;
+  actorIsStaff?: boolean;
+}): Promise<{ order?: Order; delivery?: DeliveryOrder; error?: string }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  const client = await getOrdersClient();
+  if (!client) return { error: "Supabase client unavailable." };
+
+  const { data: deliveryRow, error: findError } = await client
+    .from("delivery_orders")
+    .select("*")
+    .eq("id", input.deliveryId)
+    .maybeSingle();
+
+  if (findError || !deliveryRow) {
+    return { error: findError?.message || "Delivery not found." };
+  }
+
+  if (!input.actorIsStaff && input.actorProfileId) {
+    const driverId = deliveryRow.driver_id as string | null;
+    if (!driverId) {
+      return { error: "This delivery has no assigned driver." };
+    }
+    const { data: driverRow } = await client
+      .from("drivers")
+      .select("id, profile_id")
+      .eq("id", driverId)
+      .maybeSingle();
+    if (!driverRow || driverRow.profile_id !== input.actorProfileId) {
+      return { error: "You can only update your own deliveries." };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const deliveryUpdates: Record<string, unknown> = {
+    status: input.status,
+    updated_at: now,
+  };
+  if (input.status === "ACCEPTED") deliveryUpdates.accepted_at = now;
+  if (input.status === "PICKED_UP") deliveryUpdates.picked_up_at = now;
+  if (input.status === "ARRIVED") deliveryUpdates.arrived_at = now;
+  if (input.status === "DELIVERED") deliveryUpdates.delivered_at = now;
+  if (input.status === "CANCELLED") deliveryUpdates.cancelled_at = now;
+
+  const { error: deliveryError } = await client
+    .from("delivery_orders")
+    .update(deliveryUpdates)
+    .eq("id", input.deliveryId);
+
+  if (deliveryError) return { error: deliveryError.message };
+
+  const orderId = String(deliveryRow.order_id);
+  const orderStatus = DELIVERY_TO_ORDER_STATUS[input.status];
+  if (orderStatus) {
+    const orderUpdates: Record<string, unknown> = {
+      status: orderStatus,
+      updated_at: now,
+    };
+    if (orderStatus === "DELIVERED") orderUpdates.delivered_at = now;
+    if (orderStatus === "CANCELLED") orderUpdates.cancelled_at = now;
+    const { error: orderError } = await client
+      .from("orders")
+      .update(orderUpdates)
+      .eq("id", orderId);
+    if (orderError) return { error: orderError.message };
+  }
+
+  // Free driver when job ends
+  if (
+    (input.status === "DELIVERED" || input.status === "CANCELLED") &&
+    deliveryRow.driver_id
+  ) {
+    const driverId = String(deliveryRow.driver_id);
+    const { data: otherActive } = await client
+      .from("delivery_orders")
+      .select("id")
+      .eq("driver_id", driverId)
+      .neq("id", input.deliveryId)
+      .not("status", "in", "(DELIVERED,CANCELLED)")
+      .limit(1);
+
+    if (!otherActive?.length) {
+      await client
+        .from("drivers")
+        .update({ status: "ONLINE", updated_at: now })
+        .eq("id", driverId);
+    }
+
+    if (input.status === "DELIVERED") {
+      const { data: drv } = await client
+        .from("drivers")
+        .select("total_deliveries")
+        .eq("id", driverId)
+        .maybeSingle();
+      const nextCount = Number(drv?.total_deliveries ?? 0) + 1;
+      await client
+        .from("drivers")
+        .update({ total_deliveries: nextCount, updated_at: now })
+        .eq("id", driverId);
+    }
+  } else if (input.status === "ACCEPTED" && deliveryRow.driver_id) {
+    await client
+      .from("drivers")
+      .update({ status: "BUSY", updated_at: now })
+      .eq("id", String(deliveryRow.driver_id));
+  }
+
+  const refreshed = await fetchOrderByIdFromSupabase(orderId);
+
+  if (input.status === "DELIVERED" && refreshed?.order) {
+    await creditPointsForDeliveredOrder(client, {
+      id: refreshed.order.id,
+      customer_id: refreshed.order.customer_id,
+      order_number: refreshed.order.order_number,
+      points_earned: refreshed.order.points_earned,
+      status: refreshed.order.status,
+      subtotal: refreshed.order.subtotal,
+      discount: refreshed.order.discount,
+      points_discount: refreshed.order.points_discount,
+    });
+  }
+
+  return {
+    order: refreshed?.order,
+    delivery: refreshed?.delivery ?? undefined,
   };
 }

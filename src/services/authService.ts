@@ -36,10 +36,9 @@ export async function loginWithPassword(
 }
 
 export async function registerAccount(input: {
-  email: string;
   password: string;
   fullName: string;
-  phone?: string;
+  phone: string;
 }): Promise<AuthResult> {
   const res = await fetch("/api/auth/register", {
     method: "POST",

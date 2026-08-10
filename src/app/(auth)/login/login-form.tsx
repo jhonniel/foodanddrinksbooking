@@ -42,7 +42,7 @@ function LoginFormInner() {
     setLoading(false);
 
     if (!result.ok) {
-      toast.error(result.error ?? "Invalid email or password.");
+      toast.error(result.error ?? "Invalid phone number/email or password.");
       return;
     }
 
@@ -70,19 +70,20 @@ function LoginFormInner() {
           <Logo href="/" size="lg" className="justify-center" />
           <h1 className="mt-6 text-2xl font-bold text-navy">Welcome back</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in with your email and password.
+            Sign in with your mobile number or email.
           </p>
         </div>
 
         <div className="rounded-2xl bg-white p-6 shadow-card">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Mobile number or email</Label>
               <Input
                 id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@email.com"
+                type="text"
+                inputMode="tel"
+                autoComplete="username"
+                placeholder="09XX XXX XXXX"
                 aria-invalid={!!errors.email}
                 {...register("email")}
               />

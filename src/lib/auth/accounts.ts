@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import type { Profile, UserRole } from "@/types";
 import { hashPassword, verifyPassword } from "./password";
 import { toPublicProfile } from "./config";
+import { normalizePhoneDigits } from "./phone";
 
 export interface StoredAccount {
   id: string;
@@ -66,6 +67,20 @@ export async function findAccountByEmail(
   );
 }
 
+export async function findAccountByPhone(
+  phone: string
+): Promise<StoredAccount | null> {
+  const digits = normalizePhoneDigits(phone);
+  if (!digits) return null;
+  const db = await ensureStore();
+  return (
+    db.accounts.find((a) => {
+      const other = a.phone ? normalizePhoneDigits(a.phone) : null;
+      return other != null && other === digits;
+    }) ?? null
+  );
+}
+
 export async function findAccountById(
   id: string
 ): Promise<StoredAccount | null> {
@@ -89,7 +104,7 @@ export async function registerAccount(
 ): Promise<{ account: StoredAccount; profile: Profile } | { error: string }> {
   const email = input.email.trim().toLowerCase();
   if (!email || !input.password || !input.fullName.trim()) {
-    return { error: "Name, email, and password are required." };
+    return { error: "Name, mobile number, and password are required." };
   }
   if (input.password.length < 8) {
     return { error: "Password must be at least 8 characters." };
@@ -97,7 +112,17 @@ export async function registerAccount(
 
   const existing = await findAccountByEmail(email);
   if (existing) {
-    return { error: "An account with this email already exists." };
+    return {
+      error: "An account with this mobile number already exists.",
+    };
+  }
+  if (input.phone?.trim()) {
+    const byPhone = await findAccountByPhone(input.phone);
+    if (byPhone) {
+      return {
+        error: "An account with this mobile number already exists.",
+      };
+    }
   }
 
   const db = await ensureStore();
@@ -141,18 +166,19 @@ export async function authenticateAccount(
 ): Promise<{ account: StoredAccount; profile: Profile } | { error: string }> {
   const account = await findAccountByEmail(email);
   if (!account) {
-    return { error: "Invalid email or password." };
+    return { error: "Invalid phone number/email or password." };
   }
   if (!account.is_active) {
     return { error: "This account has been deactivated." };
   }
   if (!account.password_hash) {
     return {
-      error: "This account has no password. Reset it from your admin or create a new email account.",
+      error:
+        "This account has no password. Reset it from your admin or create a new account.",
     };
   }
   if (!verifyPassword(password, account.password_hash)) {
-    return { error: "Invalid email or password." };
+    return { error: "Invalid phone number/email or password." };
   }
   return { account, profile: toPublicProfile(account) };
 }

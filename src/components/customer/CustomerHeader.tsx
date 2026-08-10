@@ -37,8 +37,8 @@ export function CustomerHeader() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-white/90 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 lg:h-16 lg:px-6">
-        <Logo size="sm" href="/home" />
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 lg:h-[4.25rem] lg:px-6">
+        <Logo size="md" href="/home" />
 
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Desktop navigation">
           {links.map(({ href, label }) => {

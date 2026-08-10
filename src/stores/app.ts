@@ -23,12 +23,12 @@ interface AppState {
   mergeDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
-  assignDriver: (orderId: string, driverId: string) => void;
+  assignDriver: (orderId: string, driverId: string) => Promise<void>;
   updateDeliveryStatus: (
     deliveryId: string,
     status: DeliveryOrder["status"],
     extras?: Partial<DeliveryOrder>
-  ) => void;
+  ) => Promise<void>;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (userId?: string) => void;
   addNotification: (n: Notification) => void;
@@ -184,9 +184,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
         });
       },
 
-      assignDriver: (orderId, driverId) => {
+      assignDriver: async (orderId, driverId) => {
         const now = new Date().toISOString();
         const order = get().orders.find((o) => o.id === orderId);
+        const existingDelivery = get().deliveries.find(
+          (d) => d.order_id === orderId
+        );
+        const previousDriverId =
+          existingDelivery?.driver_id ?? order?.driver_id ?? null;
+
         const driverRecord =
           useDataStore.getState().drivers.find(
             (d) =>
@@ -197,7 +203,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
         const driverName =
           driverRecord?.profile?.full_name ?? "Your driver";
         const assignedDriverId = driverRecord?.id ?? driverId;
+        const profileDriverId = driverRecord?.profile_id ?? null;
         const notifs: Notification[] = [];
+        const isReassign =
+          !!previousDriverId && previousDriverId !== assignedDriverId;
 
         if (order) {
           notifs.push(
@@ -210,14 +219,30 @@ export const useAppStore = create<AppState>()((set, get) => ({
               data: { orderId },
             })
           );
-          if (driverRecord?.profile_id) {
+          if (profileDriverId) {
             notifs.push(
               createNotification({
-                userId: driverRecord.profile_id,
+                userId: profileDriverId,
                 ...NotificationTemplates.newDeliveryDriver(order.order_number),
                 data: { orderId },
               })
             );
+          }
+        }
+
+        // Free previous driver if they have no other active deliveries
+        if (isReassign && previousDriverId) {
+          const stillBusy = get().deliveries.some(
+            (d) =>
+              d.order_id !== orderId &&
+              (d.driver_id === previousDriverId ||
+                d.driver?.id === previousDriverId) &&
+              !["DELIVERED", "CANCELLED"].includes(d.status)
+          );
+          if (!stillBusy) {
+            useDataStore.getState().updateDriver(previousDriverId, {
+              status: "ONLINE",
+            });
           }
         }
 
@@ -227,27 +252,35 @@ export const useAppStore = create<AppState>()((set, get) => ({
           });
         }
 
-        set((s) => ({
-          orders: s.orders.map((o) =>
-            o.id === orderId
-              ? {
-                  ...o,
-                  driver_id: assignedDriverId,
-                  status: "ASSIGNED" as OrderStatus,
-                  updated_at: now,
-                }
-              : o
-          ),
-          deliveries: [
-            ...s.deliveries.filter((d) => d.order_id !== orderId),
-            (() => {
-              const lat = order?.delivery_address_snapshot?.latitude;
-              const lng = order?.delivery_address_snapshot?.longitude;
-              const quote =
-                lat != null && lng != null
-                  ? calculateDeliveryFee({ lat, lng }, order?.subtotal ?? 0)
-                  : null;
-              return {
+        set((s) => {
+          const lat = order?.delivery_address_snapshot?.latitude;
+          const lng = order?.delivery_address_snapshot?.longitude;
+          const quote =
+            lat != null && lng != null
+              ? calculateDeliveryFee({ lat, lng }, order?.subtotal ?? 0)
+              : null;
+
+          const nextDelivery = existingDelivery
+            ? {
+                ...existingDelivery,
+                driver_id: assignedDriverId,
+                status: "ASSIGNED" as const,
+                assigned_at: now,
+                accepted_at: null,
+                picked_up_at: null,
+                arrived_at: null,
+                delivered_at: null,
+                updated_at: now,
+                estimated_arrival: new Date(
+                  Date.now() + (quote?.estimatedMinutes ?? 30) * 60000
+                ).toISOString(),
+                distance_km:
+                  quote?.distanceKm ?? existingDelivery.distance_km,
+                driver: driverRecord
+                  ? { ...driverRecord, status: "BUSY" as const }
+                  : undefined,
+              }
+            : {
                 id: `del-${Date.now()}`,
                 order_id: orderId,
                 driver_id: assignedDriverId,
@@ -274,25 +307,71 @@ export const useAppStore = create<AppState>()((set, get) => ({
                   ? { ...driverRecord, status: "BUSY" as const }
                   : undefined,
               };
-            })(),
-          ],
-          notifications: [...notifs, ...s.notifications],
-        }));
 
-        void fetch(`/api/orders/${orderId}`, {
+          return {
+            orders: s.orders.map((o) =>
+              o.id === orderId
+                ? {
+                    ...o,
+                    driver_id: profileDriverId ?? assignedDriverId,
+                    status: "ASSIGNED" as OrderStatus,
+                    updated_at: now,
+                  }
+                : o
+            ),
+            deliveries: [
+              ...s.deliveries.filter((d) => d.order_id !== orderId),
+              nextDelivery,
+            ],
+            notifications: [...notifs, ...s.notifications],
+          };
+        });
+
+        const res = await fetch(`/api/orders/${orderId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             driverId: assignedDriverId,
             driverName,
-            driverProfileId: driverRecord?.profile_id,
+            driverProfileId: profileDriverId ?? undefined,
           }),
-        }).catch(() => {
-          /* keep optimistic local update if network fails */
         });
+
+        const payload = (await res.json().catch(() => null)) as {
+          order?: Order;
+          delivery?: DeliveryOrder;
+          error?: string;
+        } | null;
+
+        if (!res.ok || !payload?.order) {
+          throw new Error(
+            payload?.error || "Failed to save driver assignment to server."
+          );
+        }
+
+        // Replace optimistic data with authoritative Supabase rows
+        set((s) => ({
+          orders: s.orders.map((o) =>
+            o.id === orderId ? { ...o, ...payload.order! } : o
+          ),
+          deliveries: payload.delivery
+            ? [
+                ...s.deliveries.filter(
+                  (d) =>
+                    d.order_id !== orderId && d.id !== payload.delivery!.id
+                ),
+                {
+                  ...payload.delivery,
+                  driver: driverRecord
+                    ? { ...driverRecord, status: "BUSY" as const }
+                    : payload.delivery.driver,
+                },
+              ]
+            : s.deliveries,
+        }));
       },
 
-      updateDeliveryStatus: (deliveryId, status, extras = {}) => {
+      updateDeliveryStatus: async (deliveryId, status, extras = {}) => {
         const now = new Date().toISOString();
         const delivery = get().deliveries.find((d) => d.id === deliveryId);
         const order = delivery
@@ -344,13 +423,18 @@ export const useAppStore = create<AppState>()((set, get) => ({
                 d.id === delivery.driver_id ||
                 d.profile_id === delivery.driver_id
             );
-          if (driver && driver.status !== "OFFLINE" && driver.status !== "SUSPENDED") {
+          if (
+            driver &&
+            driver.status !== "OFFLINE" &&
+            driver.status !== "SUSPENDED"
+          ) {
             useDataStore.getState().updateDriver(driver.id, {
               status: "ONLINE",
             });
           }
         }
 
+        // Optimistic local update
         set((s) => ({
           deliveries: s.deliveries.map((d) =>
             d.id === deliveryId
@@ -378,6 +462,39 @@ export const useAppStore = create<AppState>()((set, get) => ({
           notifications: notifs.length
             ? [...notifs, ...s.notifications]
             : s.notifications,
+        }));
+
+        const res = await fetch(`/api/deliveries/${deliveryId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status }),
+        });
+
+        const payload = (await res.json().catch(() => null)) as {
+          delivery?: DeliveryOrder;
+          order?: Order;
+          error?: string;
+        } | null;
+
+        if (!res.ok || !payload?.delivery) {
+          throw new Error(
+            payload?.error || "Failed to save delivery status to server."
+          );
+        }
+
+        // Authoritative server rows
+        set((s) => ({
+          deliveries: s.deliveries.map((d) =>
+            d.id === deliveryId
+              ? { ...d, ...payload.delivery!, order: payload.order ?? d.order }
+              : d
+          ),
+          orders: payload.order
+            ? s.orders.map((o) =>
+                o.id === payload.order!.id ? { ...o, ...payload.order! } : o
+              )
+            : s.orders,
         }));
       },
 

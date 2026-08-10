@@ -24,6 +24,7 @@ import {
 } from "recharts";
 import { StatsCard } from "@/components/shared/StatsCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Stagger, StaggerItem, Reveal } from "@/components/motion";
 import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
 import { formatCurrency, relativeTime } from "@/lib/utils/format";
@@ -111,14 +112,18 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="p-3 sm:p-4 lg:p-8">
-      <div className="mb-6 sm:mb-8">
+      <Reveal className="mb-6 sm:mb-8">
         <h1 className="text-xl font-bold text-navy sm:text-2xl">Dashboard</h1>
         <p className="text-sm text-muted-foreground">
           Overview of today&apos;s store performance
         </p>
-      </div>
+      </Reveal>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-3 2xl:grid-cols-6">
+      <Stagger
+        className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-3 2xl:grid-cols-6"
+        fast
+      >
+        <StaggerItem>
         <StatsCard
           title="Today's Sales"
           value={formatCurrency(todayFinance.sales)}
@@ -126,6 +131,8 @@ export default function AdminDashboardPage() {
           formatNumber={(n) => formatCurrency(Math.round(n))}
           icon={DollarSign}
         />
+        </StaggerItem>
+        <StaggerItem>
         <StatsCard
           title="Today's Expenses"
           value={formatCurrency(todayFinance.expenses)}
@@ -133,6 +140,8 @@ export default function AdminDashboardPage() {
           formatNumber={(n) => formatCurrency(Math.round(n))}
           icon={Wallet}
         />
+        </StaggerItem>
+        <StaggerItem>
         <StatsCard
           title="Today's Profit"
           value={formatCurrency(todayFinance.profit)}
@@ -140,62 +149,79 @@ export default function AdminDashboardPage() {
           formatNumber={(n) => formatCurrency(Math.round(n))}
           icon={TrendingUp}
         />
+        </StaggerItem>
+        <StaggerItem>
         <StatsCard
           title="Orders"
           value={String(orderCount)}
           numericValue={orderCount}
           icon={ShoppingBag}
         />
-        <StatsCard
-          title="Customers"
-          value={String(customerCount)}
-          numericValue={customerCount}
-          icon={Users}
-        />
-        <StatsCard
-          title="Pending Deliveries"
-          value={String(pendingDeliveries)}
-          numericValue={pendingDeliveries}
-          icon={Truck}
-        />
-      </div>
+        </StaggerItem>
+        <StaggerItem>
+          <StatsCard
+            title="Customers"
+            value={String(customerCount)}
+            numericValue={customerCount}
+            icon={Users}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatsCard
+            title="Pending Deliveries"
+            value={String(pendingDeliveries)}
+            numericValue={pendingDeliveries}
+            icon={Truck}
+          />
+        </StaggerItem>
+      </Stagger>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-white px-4 py-3 shadow-card">
-          <p className="text-xs text-muted-foreground">All-time sales</p>
-          <p className="text-lg font-bold text-navy">
-            {formatCurrency(allFinance.sales)}
-          </p>
-        </div>
-        <div className="rounded-2xl bg-white px-4 py-3 shadow-card">
-          <p className="text-xs text-muted-foreground">
-            All-time expenses (manual + COGS)
-          </p>
-          <p className="text-lg font-bold text-navy">
-            {formatCurrency(allFinance.expenses)}
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            Manual {formatCurrency(allFinance.manualExpenses)} · COGS{" "}
-            {formatCurrency(allFinance.cogs)}
-          </p>
-          <a
-            href="/admin/expenses"
-            className="mt-2 inline-block text-xs font-semibold text-sky hover:underline"
-          >
-            Record expense →
-          </a>
-        </div>
-        <div className="rounded-2xl bg-white px-4 py-3 shadow-card">
-          <p className="text-xs text-muted-foreground">All-time net profit</p>
-          <p
-            className={`text-lg font-bold ${
-              allFinance.profit >= 0 ? "text-green" : "text-red-600"
-            }`}
-          >
-            {formatCurrency(allFinance.profit)}
-          </p>
-        </div>
-      </div>
+      <Stagger className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3" fast>
+        <StaggerItem className="h-full">
+          <div className="flex h-full flex-col rounded-2xl bg-white px-4 py-3 shadow-card">
+            <p className="text-center text-xs text-muted-foreground">
+              All-time sales
+            </p>
+            <p className="flex flex-1 items-center justify-center text-lg font-bold text-navy">
+              {formatCurrency(allFinance.sales)}
+            </p>
+          </div>
+        </StaggerItem>
+        <StaggerItem className="h-full">
+          <div className="flex h-full flex-col rounded-2xl bg-white px-4 py-3 shadow-card">
+            <p className="text-xs text-muted-foreground">
+              All-time expenses (manual + COGS)
+            </p>
+            <p className="pt-1 text-lg font-bold text-navy">
+              {formatCurrency(allFinance.expenses)}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Manual {formatCurrency(allFinance.manualExpenses)} · COGS{" "}
+              {formatCurrency(allFinance.cogs)}
+            </p>
+            <a
+              href="/admin/expenses"
+              className="mt-auto inline-block pt-2 text-xs font-semibold text-sky hover:underline"
+            >
+              Record expense →
+            </a>
+          </div>
+        </StaggerItem>
+        <StaggerItem className="h-full">
+          <div className="flex h-full flex-col rounded-2xl bg-white px-4 py-3 shadow-card">
+            <p className="text-center text-xs text-muted-foreground">
+              All-time net profit
+            </p>
+            <p
+              className={`flex flex-1 items-center justify-center text-lg font-bold ${
+                allFinance.profit >= 0 ? "text-green" : "text-red-600"
+              }`}
+            >
+              {formatCurrency(allFinance.profit)}
+            </p>
+          </div>
+        </StaggerItem>
+      </Stagger>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="rounded-2xl bg-white p-4 shadow-card sm:p-5 lg:col-span-2">
