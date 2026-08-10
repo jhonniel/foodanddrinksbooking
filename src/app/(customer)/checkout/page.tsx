@@ -24,6 +24,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useAppStore } from "@/stores/app";
 import { fetchCurrentProfile } from "@/services/authService";
 import { placeOrder } from "@/services/orderService";
+import { isSupabaseConfigured } from "@/lib/auth/config";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { DELIVERY_CONFIG, STORE_LOCATION } from "@/data/demo";
@@ -216,14 +217,25 @@ export default function CheckoutPage() {
 
         if (res.ok && data?.order) {
           order = data.order;
+        } else if (isSupabaseConfigured()) {
+          // With Supabase, a local-only order will vanish on refresh / admin sync.
+          toast.error(
+            data?.error ||
+              "Could not save order to Supabase. Check catalog products and try again."
+          );
+          return;
         } else {
           console.warn("Order API failed, using local fallback:", data?.error);
         }
       } catch (err) {
+        if (isSupabaseConfigured()) {
+          toast.error("Could not reach order API. Please try again.");
+          return;
+        }
         console.warn("Order API unavailable, using local fallback:", err);
       }
 
-      // Local fallback so checkout still works if the API/session sync fails.
+      // Local fallback only when Supabase is not configured.
       if (!order) {
         const result = await placeOrder({
           customerId: activeUser.id,
@@ -256,7 +268,6 @@ export default function CheckoutPage() {
           return;
         }
         order = result.order;
-        // Ensure admin board can see fallback orders too.
         void fetch("/api/orders/sync", {
           method: "POST",
           credentials: "include",

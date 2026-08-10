@@ -28,13 +28,14 @@ export function OrdersSync() {
   const notifiedAutoCancel = useRef(new Set<string>());
 
   useEffect(() => {
-    // Persist rehydrate can finish with hasHydrated still false if storage empty.
+    // Only mark hydrated if persist never calls back (e.g. empty/blocked storage).
+    // Keep this delay long enough that a normal rehydrate can finish first.
     if (!hasHydrated) {
       const t = window.setTimeout(() => {
         if (!useAppStore.getState().hasHydrated) {
           useAppStore.getState().setHasHydrated(true);
         }
-      }, 50);
+      }, 500);
       return () => window.clearTimeout(t);
     }
   }, [hasHydrated]);
@@ -63,17 +64,12 @@ export function OrdersSync() {
 
         if (Array.isArray(data.orders)) {
           if (isStaff) {
-            // Staff board: always use the shared server list.
+            // Staff board: shared server list is source of truth.
             setOrders(data.orders);
           } else {
-            // Customer: keep any local-only orders until server has them.
-            const mine = data.orders;
-            const localMine = useAppStore
-              .getState()
-              .orders.filter((o) => o.customer_id === user.id);
-            const serverIds = new Set(mine.map((o) => o.id));
-            const pendingLocal = localMine.filter((o) => !serverIds.has(o.id));
-            setOrders([...mine, ...pendingLocal]);
+            // Customer: merge server rows in; never wipe local-only orders
+            // when Supabase returns [] (common before service role / failed insert).
+            mergeOrders(data.orders);
           }
         }
         if (Array.isArray(data.deliveries)) {

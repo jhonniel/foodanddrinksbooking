@@ -44,25 +44,44 @@ export default function AdminOrdersPage() {
         cache: "no-store",
         credentials: "include",
       });
-      if (res.status === 401) {
-        setLoadError("Session expired. Please sign in again.");
-        return;
-      }
-      if (!res.ok) {
-        setLoadError("Could not load orders from server.");
-        return;
-      }
-      const data = (await res.json()) as {
+
+      const payload = (await res.json().catch(() => null)) as {
         orders?: Order[];
         deliveries?: DeliveryOrder[];
-      };
-      if (Array.isArray(data.orders)) {
-        setOrders(data.orders);
-        setLoadError(null);
+        error?: string;
+      } | null;
+
+      if (res.status === 401) {
+        // Don't flash this on background polls — cookie can race with HMR.
+        if (!opts?.silent) {
+          setLoadError("Session expired. Please sign in again.");
+        }
+        return;
       }
-      if (Array.isArray(data.deliveries)) setDeliveries(data.deliveries);
+
+      if (!res.ok) {
+        if (!opts?.silent) {
+          setLoadError(payload?.error || `Could not load orders (${res.status}).`);
+        }
+        return;
+      }
+
+      if (!Array.isArray(payload?.orders)) {
+        if (!opts?.silent) {
+          setLoadError("Could not load orders from server.");
+        }
+        return;
+      }
+
+      setOrders(payload.orders);
+      if (Array.isArray(payload.deliveries)) setDeliveries(payload.deliveries);
+      setLoadError(null);
     } catch {
-      setLoadError("Could not load orders from server.");
+      // Background poll failures (dev reload / brief offline) should not
+      // replace an already-working board with a scary error banner.
+      if (!opts?.silent) {
+        setLoadError("Could not load orders from server.");
+      }
     } finally {
       if (!opts?.silent) setRefreshing(false);
     }
@@ -76,7 +95,7 @@ export default function AdminOrdersPage() {
     }
 
     void refreshOrders();
-    const id = window.setInterval(() => void refreshOrders({ silent: true }), 3000);
+    const id = window.setInterval(() => void refreshOrders({ silent: true }), 4000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasHydrated, authInitializing, user?.id, user?.role]);
@@ -101,7 +120,14 @@ export default function AdminOrdersPage() {
               manage fulfillment
             </p>
             {loadError && (
-              <p className="mt-1 text-sm text-red-600">{loadError}</p>
+              <p className="mt-1 text-sm text-red-600">
+                {loadError}{" "}
+                {loadError.includes("Session") && (
+                  <a href="/login?next=/admin/orders" className="underline">
+                    Sign in again
+                  </a>
+                )}
+              </p>
             )}
           </div>
           <Button
@@ -110,7 +136,7 @@ export default function AdminOrdersPage() {
             size="sm"
             className="shrink-0 rounded-xl"
             onClick={() => void refreshOrders()}
-            disabled={refreshing || authInitializing}
+            disabled={refreshing || authInitializing || !hasHydrated}
           >
             <RefreshCw
               className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")}

@@ -4,7 +4,11 @@ import {
   assertRole,
   getSessionProfileFromRequest,
 } from "@/lib/auth/server";
-import { canAccessAdmin, canAssignDrivers } from "@/lib/auth/config";
+import {
+  canAccessAdmin,
+  canAssignDrivers,
+  isSupabaseConfigured,
+} from "@/lib/auth/config";
 import {
   findOrderById,
   updateOrderStatusInStore,
@@ -12,6 +16,11 @@ import {
   upsertDelivery,
   getOrdersSnapshot,
 } from "@/lib/orders/localFileStore";
+import {
+  assignDriverInSupabase,
+  fetchOrderByIdFromSupabase,
+  updateOrderStatusInSupabase,
+} from "@/lib/supabase/orders";
 import { STORE_LOCATION } from "@/data/demo";
 import { calculateDeliveryFee } from "@/lib/delivery/pricing";
 import type { DeliveryOrder, OrderStatus } from "@/types";
@@ -46,6 +55,21 @@ export async function GET(
   }
 
   const { id } = await context.params;
+
+  if (isSupabaseConfigured()) {
+    const loaded = await fetchOrderByIdFromSupabase(id);
+    if (!loaded) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    if (
+      !canAccessAdmin(profile.role) &&
+      loaded.order.customer_id !== profile.id
+    ) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return NextResponse.json(loaded);
+  }
+
   const order = await findOrderById(id);
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -70,10 +94,6 @@ export async function PATCH(
   }
 
   const { id } = await context.params;
-  const order = await findOrderById(id);
-  if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
 
   let body: unknown;
   try {
@@ -94,6 +114,53 @@ export async function PATCH(
   }
 
   const { status, driverId, driverName, driverProfileId } = parsed.data;
+
+  if (isSupabaseConfigured()) {
+    if (driverId) {
+      if (!canAssignDrivers(profile.role)) {
+        return NextResponse.json(
+          { error: "You do not have permission to assign drivers." },
+          { status: 403 }
+        );
+      }
+      const result = await assignDriverInSupabase({
+        orderId: id,
+        driverId,
+        driverProfileId,
+      });
+      if (result.error || !result.order) {
+        return NextResponse.json(
+          { error: result.error || "Failed to assign driver." },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({
+        order: result.order,
+        delivery: result.delivery,
+      });
+    }
+
+    if (status) {
+      const result = await updateOrderStatusInSupabase(id, status);
+      if (result.error || !result.order) {
+        return NextResponse.json(
+          { error: result.error || "Failed to update order." },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({ order: result.order });
+    }
+
+    return NextResponse.json(
+      { error: "Provide status or driverId to update." },
+      { status: 400 }
+    );
+  }
+
+  const order = await findOrderById(id);
+  if (!order) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
 
   if (driverId) {
     if (!canAssignDrivers(profile.role)) {

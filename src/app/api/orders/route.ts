@@ -6,12 +6,16 @@ import {
   getSessionProfileFromRequest,
   assertRole,
 } from "@/lib/auth/server";
-import { canAccessAdmin } from "@/lib/auth/config";
+import { canAccessAdmin, isSupabaseConfigured } from "@/lib/auth/config";
 import {
   getOrdersSnapshot,
   nextOrderNumber,
   saveOrder,
 } from "@/lib/orders/localFileStore";
+import {
+  createOrderInSupabase,
+  fetchOrdersFromSupabase,
+} from "@/lib/supabase/orders";
 import type { CartItem, PaymentMethod, OrderType } from "@/types";
 
 const num = z.coerce.number().finite();
@@ -85,37 +89,95 @@ const orderApiSchema = z
     }
   });
 
-function firstValidationMessage(
-  error: z.ZodError
-): string {
+function firstValidationMessage(error: z.ZodError): string {
   const issue = error.issues[0];
   if (!issue) return "Validation failed.";
   const path = issue.path.length ? `${issue.path.join(".")}: ` : "";
   return `${path}${issue.message}`;
 }
 
+function toCartItems(
+  items: z.infer<typeof orderApiSchema>["items"]
+): CartItem[] {
+  return items.map((item) => ({
+    id: item.id,
+    productId: item.productId,
+    productName: item.productName,
+    productImage: item.productImage,
+    basePrice: item.basePrice,
+    quantity: item.quantity,
+    options: (item.options ?? []).map((o) => ({
+      optionId: o.optionId,
+      optionName: o.optionName,
+      valueId: o.valueId,
+      valueName: o.valueName,
+      priceAdjustment: o.priceAdjustment ?? 0,
+    })),
+    addons: (item.addons ?? []).map((a) => ({
+      addonId: a.addonId,
+      name: a.name,
+      price: a.price ?? 0,
+      quantity: a.quantity ?? 1,
+    })),
+    specialInstructions: item.specialInstructions,
+  }));
+}
+
 export async function GET(request: NextRequest) {
-  const profile = await getSessionProfileFromRequest(request);
-  if (!assertRole(profile, "authenticated")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const profile = await getSessionProfileFromRequest(request);
+    if (!assertRole(profile, "authenticated")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const isStaff = canAccessAdmin(profile.role);
+
+    if (isSupabaseConfigured()) {
+      const snapshot = await fetchOrdersFromSupabase(
+        isStaff ? undefined : { customerId: profile.id }
+      );
+      if (!snapshot) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not load orders from Supabase. Check service role key and that bootstrap.sql was run.",
+            orders: [],
+            deliveries: [],
+            autoCancelled: [],
+          },
+          { status: 502 }
+        );
+      }
+      return NextResponse.json(snapshot);
+    }
+
+    const { orders, deliveries, autoCancelled } = await getOrdersSnapshot();
+
+    if (isStaff) {
+      return NextResponse.json({ orders, deliveries, autoCancelled });
+    }
+
+    return NextResponse.json({
+      orders: orders.filter((o) => o.customer_id === profile.id),
+      deliveries: deliveries.filter((d) =>
+        orders.some(
+          (o) => o.id === d.order_id && o.customer_id === profile.id
+        )
+      ),
+      autoCancelled: autoCancelled.filter((o) => o.customer_id === profile.id),
+    });
+  } catch (err) {
+    console.error("GET /api/orders failed:", err);
+    return NextResponse.json(
+      {
+        error: "Failed to read orders store.",
+        orders: [],
+        deliveries: [],
+        autoCancelled: [],
+      },
+      { status: 500 }
+    );
   }
-
-  const { orders, deliveries, autoCancelled } = await getOrdersSnapshot();
-  const isStaff = canAccessAdmin(profile.role);
-
-  if (isStaff) {
-    return NextResponse.json({ orders, deliveries, autoCancelled });
-  }
-
-  return NextResponse.json({
-    orders: orders.filter((o) => o.customer_id === profile.id),
-    deliveries: deliveries.filter((d) =>
-      orders.some(
-        (o) => o.id === d.order_id && o.customer_id === profile.id
-      )
-    ),
-    autoCancelled: autoCancelled.filter((o) => o.customer_id === profile.id),
-  });
 }
 
 export async function POST(request: NextRequest) {
@@ -155,31 +217,43 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+  const items = toCartItems(data.items);
+  const address =
+    data.orderType === "DELIVERY"
+      ? {
+          full_address: data.fullAddress || "Address on file",
+          latitude: data.latitude ?? undefined,
+          longitude: data.longitude ?? undefined,
+          delivery_instructions: data.deliveryInstructions || undefined,
+        }
+      : null;
+
+  if (isSupabaseConfigured()) {
+    const created = await createOrderInSupabase({
+      customer: profile,
+      items,
+      orderType: data.orderType as OrderType,
+      paymentMethod: data.paymentMethod as PaymentMethod,
+      address,
+      deliveryInstructions: data.deliveryInstructions || undefined,
+      deliveryFee: data.deliveryFee,
+      subtotal: data.subtotal,
+      discount: data.discount,
+      pointsDiscount: data.pointsDiscount,
+      pointsUsed: data.pointsUsed,
+      idempotencyKey: data.idempotencyKey,
+    });
+
+    if (!created.order) {
+      return NextResponse.json(
+        { error: created.error || "Failed to place order in Supabase." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ order: created.order }, { status: 201 });
+  }
+
   const orderNumber = await nextOrderNumber();
-
-  const items: CartItem[] = data.items.map((item) => ({
-    id: item.id,
-    productId: item.productId,
-    productName: item.productName,
-    productImage: item.productImage,
-    basePrice: item.basePrice,
-    quantity: item.quantity,
-    options: (item.options ?? []).map((o) => ({
-      optionId: o.optionId,
-      optionName: o.optionName,
-      valueId: o.valueId,
-      valueName: o.valueName,
-      priceAdjustment: o.priceAdjustment ?? 0,
-    })),
-    addons: (item.addons ?? []).map((a) => ({
-      addonId: a.addonId,
-      name: a.name,
-      price: a.price ?? 0,
-      quantity: a.quantity ?? 1,
-    })),
-    specialInstructions: item.specialInstructions,
-  }));
-
   const result = await placeOrder({
     customerId: profile.id,
     customerName: profile.full_name,
@@ -187,15 +261,7 @@ export async function POST(request: NextRequest) {
     items,
     orderType: data.orderType as OrderType,
     paymentMethod: data.paymentMethod as PaymentMethod,
-    address:
-      data.orderType === "DELIVERY"
-        ? {
-            full_address: data.fullAddress || "Address on file",
-            latitude: data.latitude ?? undefined,
-            longitude: data.longitude ?? undefined,
-            delivery_instructions: data.deliveryInstructions || undefined,
-          }
-        : null,
+    address,
     deliveryInstructions: data.deliveryInstructions || undefined,
     deliveryFee: data.deliveryFee,
     subtotal: data.subtotal,
@@ -219,7 +285,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ order: saved }, { status: 201 });
   } catch (err) {
     console.error("Failed to persist order; returning order anyway:", err);
-    // Still return the order so checkout can complete (e.g. read-only FS on some hosts).
     return NextResponse.json({ order: result.order }, { status: 201 });
   }
 }
