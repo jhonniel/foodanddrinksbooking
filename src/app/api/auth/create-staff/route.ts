@@ -4,6 +4,8 @@ import { getSessionProfileFromCookies } from "@/lib/auth/server";
 import { jsonError, jsonOk } from "@/lib/auth/http";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
+import { ensureDriverForProfile } from "@/lib/supabase/drivers";
+import type { Profile } from "@/types";
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -22,7 +24,7 @@ export async function POST(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return jsonError(parsed.error.errors[0]?.message ?? "Invalid input.");
+    return jsonError(parsed.error.issues[0]?.message ?? "Invalid input.");
   }
 
   const { email, password, fullName, phone, role } = parsed.data;
@@ -36,6 +38,7 @@ export async function POST(request: Request) {
       password,
       email_confirm: true,
       user_metadata: { full_name: fullName, phone: phone ?? null },
+      app_metadata: { role },
     });
 
     if (error || !data.user) {
@@ -54,14 +57,16 @@ export async function POST(request: Request) {
       .select("*")
       .maybeSingle();
 
-    if (profileError) {
-      return jsonError(profileError.message);
+    if (profileError || !profile) {
+      return jsonError(profileError?.message ?? "Failed to update profile role.");
     }
 
-    await supabase.auth.admin.updateUserById(data.user.id, {
-      app_metadata: { role },
-      user_metadata: { full_name: fullName, phone: phone ?? null },
-    });
+    if (role === "DRIVER") {
+      const ensured = await ensureDriverForProfile(profile as Profile);
+      if (ensured.error) {
+        console.warn("[create-staff] driver row:", ensured.error);
+      }
+    }
 
     return jsonOk({ profile });
   }

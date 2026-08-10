@@ -4,6 +4,8 @@ import { getSessionProfileFromCookies } from "@/lib/auth/server";
 import { jsonError, jsonOk } from "@/lib/auth/http";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
+import { ensureDriverForProfile } from "@/lib/supabase/drivers";
+import type { Profile } from "@/types";
 
 const bodySchema = z.object({
   accountId: z.string().min(1),
@@ -47,6 +49,10 @@ export async function POST(request: Request) {
     await supabase.auth.admin.updateUserById(parsed.data.accountId, {
       app_metadata: { role: parsed.data.role },
     });
+
+    if (parsed.data.role === "DRIVER") {
+      await ensureDriverForProfile(data as Profile);
+    }
 
     return jsonOk({ profile: data });
   }

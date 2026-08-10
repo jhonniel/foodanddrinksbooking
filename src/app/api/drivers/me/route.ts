@@ -73,7 +73,11 @@ export async function PATCH(request: NextRequest) {
   const ensured = await ensureDriverForProfile(profile);
   if (!ensured.driver) {
     return NextResponse.json(
-      { error: ensured.error || "No driver profile linked to this account." },
+      {
+        error:
+          ensured.error ||
+          "Could not create a drivers record for this account.",
+      },
       { status: 400 }
     );
   }

@@ -60,7 +60,14 @@ export function mapDriverRow(row: Record<string, unknown>): Driver {
 }
 
 async function getAdminClient() {
-  if (!isSupabaseConfigured() || !getSupabaseServiceRoleKey()) return null;
+  if (!isSupabaseConfigured()) return null;
+  // Writes to drivers require the service role (RLS blocks anon/authenticated).
+  if (!getSupabaseServiceRoleKey()) {
+    console.error(
+      "[drivers] SUPABASE_SERVICE_ROLE_KEY is missing — cannot read/create driver rows."
+    );
+    return null;
+  }
   return createServerClient();
 }
 
@@ -143,7 +150,7 @@ export async function ensureDriverForProfile(
   if (!client) {
     return {
       error:
-        "SUPABASE_SERVICE_ROLE_KEY is required to create a driver profile.",
+        "Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it in .env.local / Vercel, then redeploy.",
     };
   }
 
@@ -228,7 +235,7 @@ export async function updateDriverStatusInSupabase(
     return {
       error:
         ensured.error ||
-        "No driver profile linked to this account. Sign out and back in, then try again.",
+        "Could not create a drivers record for this account. Check SUPABASE_SERVICE_ROLE_KEY and try again.",
     };
   }
 
