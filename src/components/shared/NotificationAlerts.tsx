@@ -1,100 +1,54 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Bell, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Volume2, VolumeX } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
   unlockNotificationAudio,
   requestNotificationPermission,
   getCustomerSoundPref,
   setCustomerSoundPref,
   playAlertSound,
-  type AlertSoundKind,
 } from "@/lib/notifications/alert";
 
 /**
- * Asks for browser notification permission and unlocks audio
- * (required by browsers after a user gesture).
- * Only shown while permission is still undecided.
+ * Admin / driver: no banner. Request browser permission and unlock audio
+ * automatically (permission on load when allowed; audio on first interaction).
  */
-export function EnableAlertsBanner({
-  audience,
-}: {
-  audience: "admin" | "driver" | "customer";
-}) {
-  const [needPermission, setNeedPermission] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const soundKind: AlertSoundKind =
-    audience === "customer" ? "soft" : "urgent";
-  const soundSrc =
-    soundKind === "urgent"
-      ? "/sounds/urgent-alert.wav"
-      : "/sounds/soft-bell.wav";
-
+export function AutoEnableStaffAlerts() {
   useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (Notification.permission === "default") {
-      setNeedPermission(true);
-    }
+    if (typeof window === "undefined") return;
+
+    void requestNotificationPermission().catch(() => {
+      /* browser may defer until a gesture */
+    });
+
+    const arm = () => {
+      void (async () => {
+        try {
+          await unlockNotificationAudio();
+          await requestNotificationPermission();
+        } catch {
+          /* ignore */
+        }
+      })();
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+      window.removeEventListener("touchstart", arm);
+    };
+
+    window.addEventListener("pointerdown", arm, { once: true, passive: true });
+    window.addEventListener("keydown", arm, { once: true });
+    window.addEventListener("touchstart", arm, { once: true, passive: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+      window.removeEventListener("touchstart", arm);
+    };
   }, []);
 
-  const enable = async () => {
-    try {
-      const el = audioRef.current;
-      if (el) {
-        el.pause();
-        el.currentTime = 0;
-        el.volume = 1;
-        el.muted = false;
-        await el.play();
-      }
-      await unlockNotificationAudio();
-      const perm = await requestNotificationPermission();
-      setNeedPermission(false);
-      if (perm === "granted") {
-        toast.success("Notifications enabled");
-      } else {
-        toast.message(
-          "Browser alerts blocked — in-app sounds still work after you interact with the page."
-        );
-      }
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Could not enable alerts"
-      );
-    }
-  };
-
-  if (!needPermission) return null;
-
-  const label =
-    audience === "admin"
-      ? "Enable sounds for new orders"
-      : audience === "driver"
-        ? "Enable sounds for new deliveries"
-        : "Enable order notifications";
-
-  return (
-    <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 sm:px-4">
-      <audio ref={audioRef} src={soundSrc} preload="auto" playsInline />
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm text-amber-950">
-          <Bell className="h-4 w-4 shrink-0" />
-          {label}
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          className="h-8 rounded-lg bg-amber-600 text-white hover:bg-amber-700"
-          onClick={enable}
-        >
-          Enable alerts
-        </Button>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 export function CustomerSoundToggle() {

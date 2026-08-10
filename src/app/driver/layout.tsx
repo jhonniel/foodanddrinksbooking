@@ -2,10 +2,11 @@
 
 import { useAuthStore } from "@/stores/auth";
 import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
-import { EnableAlertsBanner } from "@/components/shared/NotificationAlerts";
+import { AutoEnableStaffAlerts } from "@/components/shared/NotificationAlerts";
 import { NotificationBell } from "@/components/shared/NotificationBell";
 import { Logo } from "@/components/shared/Logo";
 import { DriverBottomNav } from "@/components/driver/DriverBottomNav";
+import { DriverProfileSync } from "@/components/driver/DriverProfileSync";
 import { RoleGuard } from "@/components/shared/RoleGuard";
 
 function DriverNotificationBridge() {
@@ -14,7 +15,7 @@ function DriverNotificationBridge() {
     audience: "driver",
     sound: "urgent",
   });
-  return <EnableAlertsBanner audience="driver" />;
+  return <AutoEnableStaffAlerts />;
 }
 
 export default function DriverLayout({
@@ -25,6 +26,7 @@ export default function DriverLayout({
   return (
     <RoleGuard allow="driver">
       <div className="min-h-screen overflow-x-hidden bg-surface pb-24">
+        <DriverProfileSync />
         <DriverNotificationBridge />
         <header className="sticky top-0 z-40 flex items-center justify-between border-b bg-white/95 px-3 py-3 backdrop-blur-md safe-top sm:px-4">
           <Logo size="sm" href="/driver" />

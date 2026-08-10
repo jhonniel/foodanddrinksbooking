@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import type { Order, OrderStatus, DeliveryOrder, Notification } from "@/types";
 import { STORE_LOCATION } from "@/data/demo";
 import { useDataStore } from "@/stores/data";
@@ -15,12 +14,11 @@ interface AppState {
   deliveries: DeliveryOrder[];
   notifications: Notification[];
   driverOnline: boolean;
-  /** True after zustand persist finishes loading from localStorage. */
+  /** Always true — orders are never read from localStorage. */
   hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
   setOrders: (orders: Order[]) => void;
   setDeliveries: (deliveries: DeliveryOrder[]) => void;
-  /** Merge server orders with any local-only orders (by id; server wins). */
   mergeOrders: (orders: Order[]) => void;
   mergeDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
@@ -68,14 +66,31 @@ function notifyCustomer(
   });
 }
 
-export const useAppStore = create<AppState>()(
-  persist(
-    (set, get) => ({
+/** Wipe legacy browser caches that used to store orders locally. */
+export function clearLegacyOrderLocalStorage() {
+  if (typeof window === "undefined") return;
+  const keys = [
+    "island-coolers-app-v2",
+    "island-coolers-app-v3",
+    "island-coolers-app-v4",
+    "island-coolers-app-v5",
+    "island-coolers-app-v6",
+  ];
+  for (const key of keys) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export const useAppStore = create<AppState>()((set, get) => ({
       orders: [],
       deliveries: [],
       notifications: [],
       driverOnline: false,
-      hasHydrated: false,
+      hasHydrated: true,
 
       setHasHydrated: (value) => set({ hasHydrated: value }),
       setOrders: (orders) => set({ orders }),
@@ -158,7 +173,12 @@ export const useAppStore = create<AppState>()(
         void fetch(`/api/orders/${orderId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
+          body: JSON.stringify({
+            status,
+            ...(status === "CANCELLED"
+              ? { cancelledReason: "Cancelled by store" }
+              : {}),
+          }),
         }).catch(() => {
           /* keep optimistic local update if network fails */
         });
@@ -381,19 +401,4 @@ export const useAppStore = create<AppState>()(
         set((s) => ({ notifications: [n, ...s.notifications] })),
 
       setDriverOnline: (online) => set({ driverOnline: online }),
-    }),
-    {
-      // v6: do not persist orders/deliveries — Supabase (via /api/orders) is
-      // the source of truth. Persisting them caused ghost customer orders that
-      // never existed in admin.
-      name: "island-coolers-app-v6",
-      partialize: (state) => ({
-        notifications: state.notifications,
-        driverOnline: state.driverOnline,
-      }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
-      },
-    }
-  )
-);
+}));

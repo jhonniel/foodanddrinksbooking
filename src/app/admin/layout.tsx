@@ -2,7 +2,7 @@
 
 import { useAuthStore } from "@/stores/auth";
 import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
-import { EnableAlertsBanner } from "@/components/shared/NotificationAlerts";
+import { AutoEnableStaffAlerts } from "@/components/shared/NotificationAlerts";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminMobileNav } from "@/components/admin/AdminMobileNav";
 import { RoleGuard } from "@/components/shared/RoleGuard";
@@ -14,7 +14,7 @@ function AdminNotificationBridge() {
     alsoMatchIds: ["staff"],
     sound: "urgent",
   });
-  return null;
+  return <AutoEnableStaffAlerts />;
 }
 
 export default function AdminLayout({
@@ -28,7 +28,6 @@ export default function AdminLayout({
         <AdminNotificationBridge />
         <AdminSidebar />
         <main className="min-h-screen min-w-0 pt-14 pb-20 lg:pb-0 lg:pl-64 lg:pt-0">
-          <EnableAlertsBanner audience="admin" />
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
         <AdminMobileNav />

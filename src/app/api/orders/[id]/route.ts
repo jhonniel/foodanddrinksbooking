@@ -10,6 +10,10 @@ import {
   isSupabaseConfigured,
 } from "@/lib/auth/config";
 import {
+  customerCanCancelOrder,
+  staffCanCancelOrder,
+} from "@/lib/constants";
+import {
   assignDriverInSupabase,
   fetchOrderByIdFromSupabase,
   updateOrderStatusInSupabase,
@@ -30,6 +34,7 @@ const patchSchema = z.object({
       "CANCELLED",
     ])
     .optional(),
+  cancelledReason: z.string().max(500).optional().nullable(),
   driverId: z.string().min(1).optional(),
   driverName: z.string().optional(),
   driverProfileId: z.string().optional(),
@@ -77,11 +82,12 @@ export async function PATCH(
   if (!isSupabaseConfigured()) return supabaseRequired();
 
   const profile = await getSessionProfileFromRequest(request);
-  if (!assertRole(profile, "staff")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!assertRole(profile, "authenticated")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await context.params;
+  const isStaff = canAccessAdmin(profile.role);
 
   let body: unknown;
   try {
@@ -101,9 +107,13 @@ export async function PATCH(
     );
   }
 
-  const { status, driverId, driverProfileId } = parsed.data;
+  const { status, cancelledReason, driverId, driverProfileId } = parsed.data;
 
+  // Driver assignment: staff only
   if (driverId) {
+    if (!isStaff) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     if (!canAssignDrivers(profile.role)) {
       return NextResponse.json(
         { error: "You do not have permission to assign drivers." },
@@ -127,19 +137,78 @@ export async function PATCH(
     });
   }
 
-  if (status) {
-    const result = await updateOrderStatusInSupabase(id, status);
+  if (!status) {
+    return NextResponse.json(
+      { error: "Provide status or driverId to update." },
+      { status: 400 }
+    );
+  }
+
+  const loaded = await fetchOrderByIdFromSupabase(id);
+  if (!loaded) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+  const order = loaded.order;
+
+  // Customer cancel: only own PENDING orders (before processing).
+  if (!isStaff) {
+    if (order.customer_id !== profile.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (status !== "CANCELLED") {
+      return NextResponse.json(
+        { error: "Customers can only cancel orders." },
+        { status: 403 }
+      );
+    }
+    if (!customerCanCancelOrder(order.status)) {
+      return NextResponse.json(
+        {
+          error:
+            "This order is already Confirmed. Only the store/admin can cancel it.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const result = await updateOrderStatusInSupabase(id, "CANCELLED", {
+      cancelledReason: cancelledReason || "Cancelled by customer",
+    });
     if (result.error || !result.order) {
       return NextResponse.json(
-        { error: result.error || "Failed to update order." },
+        { error: result.error || "Failed to cancel order." },
         { status: 400 }
       );
     }
     return NextResponse.json({ order: result.order });
   }
 
-  return NextResponse.json(
-    { error: "Provide status or driverId to update." },
-    { status: 400 }
-  );
+  // Staff updates
+  if (status === "CANCELLED") {
+    if (!staffCanCancelOrder(order.status)) {
+      return NextResponse.json(
+        { error: "This order can no longer be cancelled." },
+        { status: 400 }
+      );
+    }
+    const result = await updateOrderStatusInSupabase(id, "CANCELLED", {
+      cancelledReason: cancelledReason || "Cancelled by store",
+    });
+    if (result.error || !result.order) {
+      return NextResponse.json(
+        { error: result.error || "Failed to cancel order." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ order: result.order });
+  }
+
+  const result = await updateOrderStatusInSupabase(id, status);
+  if (result.error || !result.order) {
+    return NextResponse.json(
+      { error: result.error || "Failed to update order." },
+      { status: 400 }
+    );
+  }
+  return NextResponse.json({ order: result.order });
 }

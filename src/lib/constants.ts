@@ -77,6 +77,16 @@ export const PENDING_ACCEPT_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 export const AUTO_CANCEL_REASON =
   "Store did not accept the order within 1 hour";
 
+/** Customer may cancel only before admin Confirms (PENDING only). */
+export function customerCanCancelOrder(status: OrderStatus): boolean {
+  return status === "PENDING";
+}
+
+/** Staff/admin may cancel any order that is not already finished. */
+export function staffCanCancelOrder(status: OrderStatus): boolean {
+  return status !== "DELIVERED" && status !== "CANCELLED";
+}
+
 export const PERMISSIONS = {
   SUPER_ADMIN: ["*"],
   ADMIN: [

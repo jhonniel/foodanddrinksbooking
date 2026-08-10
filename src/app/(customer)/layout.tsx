@@ -2,7 +2,6 @@
 
 import { useAuthStore } from "@/stores/auth";
 import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
-import { EnableAlertsBanner } from "@/components/shared/NotificationAlerts";
 import { CustomerHeader } from "@/components/customer/CustomerHeader";
 import { CustomerBottomNav } from "@/components/customer/CustomerBottomNav";
 import { StickyCartButton } from "@/components/customer/StickyCartButton";
@@ -12,8 +11,7 @@ function CustomerNotificationBridge() {
   useRealtimeNotifications(user?.id, {
     audience: "customer",
   });
-  if (!user) return null;
-  return <EnableAlertsBanner audience="customer" />;
+  return null;
 }
 
 export default function CustomerLayout({

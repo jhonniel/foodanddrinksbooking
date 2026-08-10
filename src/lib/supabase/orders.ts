@@ -475,7 +475,8 @@ export async function createOrderInSupabase(input: {
 
 export async function updateOrderStatusInSupabase(
   orderId: string,
-  status: OrderStatus
+  status: OrderStatus,
+  extras?: { cancelledReason?: string | null }
 ): Promise<{ order?: Order; error?: string }> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
   const client = await getOrdersClient();
@@ -487,7 +488,11 @@ export async function updateOrderStatusInSupabase(
   if (status === "PREPARING") updates.preparing_at = now;
   if (status === "READY") updates.ready_at = now;
   if (status === "DELIVERED") updates.delivered_at = now;
-  if (status === "CANCELLED") updates.cancelled_at = now;
+  if (status === "CANCELLED") {
+    updates.cancelled_at = now;
+    updates.cancelled_reason =
+      extras?.cancelledReason ?? "Cancelled by store";
+  }
 
   const { error } = await client.from("orders").update(updates).eq("id", orderId);
   if (error) return { error: error.message };

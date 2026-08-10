@@ -243,6 +243,9 @@ interface DataState {
   deductedOrderIds: string[];
 
   setHydrated: (v: boolean) => void;
+  /** Replace customers from Supabase profiles */
+  setCustomers: (customers: Profile[]) => void;
+  setDrivers: (drivers: Driver[]) => void;
   /** Replace catalog slices when Supabase is the source of truth */
   applyCatalog: (input: {
     categories: Category[];
@@ -354,6 +357,8 @@ export const useDataStore = create<DataState>()(
       deductedOrderIds: [],
 
       setHydrated: (v) => set({ hydrated: v }),
+      setCustomers: (customers) => set({ customers }),
+      setDrivers: (drivers) => set({ drivers }),
 
       applyCatalog: ({ categories, products, inventory }) =>
         set({

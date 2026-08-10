@@ -76,15 +76,17 @@ export default function DriverHomePage() {
 
   const handleToggleOnline = async () => {
     if (!user?.id) return;
-    if (!driverRecord) {
-      toast.error("No driver profile linked to this account.");
-      return;
-    }
     setToggling(true);
     try {
       const next = !driverOnline;
       await setDriverOnlineStatus(user.id, next);
       toast.success(next ? "You're online" : "You're offline");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "No driver profile linked to this account."
+      );
     } finally {
       setToggling(false);
     }

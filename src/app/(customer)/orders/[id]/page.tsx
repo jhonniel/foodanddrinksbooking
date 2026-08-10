@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -20,6 +20,7 @@ import { useCartStore } from "@/stores/cart";
 import { getMapProvider } from "@/lib/maps/provider";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { trackingHeadline } from "@/lib/orderTracking";
+import { customerCanCancelOrder } from "@/lib/constants";
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -28,8 +29,10 @@ export default function OrderDetailPage() {
 
   const orders = useAppStore((s) => s.orders);
   const deliveries = useAppStore((s) => s.deliveries);
+  const setOrders = useAppStore((s) => s.setOrders);
   const user = useAuthStore((s) => s.user);
   const addItem = useCartStore((s) => s.addItem);
+  const [cancelling, setCancelling] = useState(false);
 
   const order = orders.find((o) => o.id === orderId);
   const delivery = deliveries.find((d) => d.order_id === orderId);
@@ -75,6 +78,56 @@ export default function OrderDetailPage() {
     });
     toast.success("Items added to cart");
     router.push("/cart");
+  };
+
+  const handleCancel = async () => {
+    if (!order) return;
+    if (!customerCanCancelOrder(order.status)) {
+      toast.error(
+        "This order is already Confirmed. Only the store can cancel it."
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        "Cancel this order? You can only cancel before the store Confirms it."
+      )
+    ) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "CANCELLED",
+          cancelledReason: "Cancelled by customer",
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        order?: typeof order;
+        error?: string;
+      } | null;
+      if (!res.ok || !data?.order) {
+        toast.error(
+          data?.error ||
+            "Could not cancel order. If it is already processing, contact the store."
+        );
+        return;
+      }
+      setOrders(
+        useAppStore
+          .getState()
+          .orders.map((o) => (o.id === data.order!.id ? { ...o, ...data.order! } : o))
+      );
+      toast.success("Order cancelled");
+    } catch {
+      toast.error("Could not cancel order. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
   };
 
   if (!order) {
@@ -278,6 +331,28 @@ export default function OrderDetailPage() {
           </div>
         </div>
       </div>
+
+      {(user?.role === "CUSTOMER" || !user) &&
+        customerCanCancelOrder(order.status) && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 w-full rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+            onClick={() => void handleCancel()}
+            disabled={cancelling}
+          >
+            {cancelling ? "Cancelling…" : "Cancel order"}
+          </Button>
+        )}
+
+      {(user?.role === "CUSTOMER" || !user) &&
+        !customerCanCancelOrder(order.status) &&
+        order.status !== "DELIVERED" &&
+        order.status !== "CANCELLED" && (
+          <p className="rounded-xl bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
+            This order is Confirmed and can only be cancelled by the store.
+          </p>
+        )}
 
       {(user?.role === "CUSTOMER" || !user) &&
         order.status === "DELIVERED" && (

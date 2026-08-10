@@ -3,7 +3,10 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/stores/auth";
-import { useAppStore } from "@/stores/app";
+import {
+  clearLegacyOrderLocalStorage,
+  useAppStore,
+} from "@/stores/app";
 import {
   createNotification,
   NotificationTemplates,
@@ -13,35 +16,23 @@ import { canAccessAdmin } from "@/lib/auth/config";
 import type { DeliveryOrder, Order } from "@/types";
 
 /**
- * Keeps the client order board in sync with Supabase via /api/orders.
- * Waits for localStorage rehydrate + auth so refresh does not wipe orders.
+ * Syncs in-memory order state from Supabase via /api/orders.
+ * Orders are never written to localStorage.
  */
 export function OrdersSync() {
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
-  const hasHydrated = useAppStore((s) => s.hasHydrated);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const addNotification = useAppStore((s) => s.addNotification);
   const notifiedAutoCancel = useRef(new Set<string>());
 
   useEffect(() => {
-    // Only mark hydrated if persist never calls back (e.g. empty/blocked storage).
-    // Keep this delay long enough that a normal rehydrate can finish first.
-    if (!hasHydrated) {
-      const t = window.setTimeout(() => {
-        if (!useAppStore.getState().hasHydrated) {
-          useAppStore.getState().setHasHydrated(true);
-        }
-      }, 500);
-      return () => window.clearTimeout(t);
-    }
-  }, [hasHydrated]);
+    clearLegacyOrderLocalStorage();
+  }, []);
 
   useEffect(() => {
-    // Critical: never pull before persist rehydrate finishes, or an empty
-    // localStorage snapshot can overwrite a successful server fetch.
-    if (!hasHydrated || authInitializing || !user) return;
+    if (authInitializing || !user) return;
 
     let cancelled = false;
     const isStaff = canAccessAdmin(user.role);
@@ -116,14 +107,7 @@ export function OrdersSync() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [
-    user,
-    authInitializing,
-    hasHydrated,
-    setOrders,
-    setDeliveries,
-    addNotification,
-  ]);
+  }, [user, authInitializing, setOrders, setDeliveries, addNotification]);
 
   return null;
 }

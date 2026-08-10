@@ -1,4 +1,4 @@
-import type { Driver, DriverLocation } from "@/types";
+import type { Driver } from "@/types";
 import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
 import { getDriverActiveDelivery } from "@/services/deliveryService";
@@ -41,77 +41,106 @@ function readGeolocation(): Promise<{ lat: number; lng: number } | null> {
   });
 }
 
-function buildLocation(
-  driverId: string,
-  coords: { lat: number; lng: number }
-): DriverLocation {
-  return {
-    id: `loc-${driverId}-${Date.now()}`,
-    driver_id: driverId,
-    latitude: coords.lat,
-    longitude: coords.lng,
-    heading: null,
-    speed: null,
-    recorded_at: new Date().toISOString(),
-  };
+function upsertLocalDriver(driver: Driver) {
+  const store = useDataStore.getState();
+  const others = store.drivers.filter(
+    (d) => d.id !== driver.id && d.profile_id !== driver.profile_id
+  );
+  store.setDrivers([driver, ...others]);
 }
 
-/** Sync Driver.status + optional GPS, and mirror app.driverOnline. */
+/** Load / create the Supabase drivers row for the signed-in driver. */
+export async function syncMyDriverProfile(): Promise<Driver | null> {
+  const res = await fetch("/api/drivers/me", {
+    cache: "no-store",
+    credentials: "include",
+  });
+  const data = (await res.json().catch(() => null)) as {
+    driver?: Driver;
+    error?: string;
+  } | null;
+  if (!res.ok || !data?.driver) {
+    throw new Error(data?.error || "Could not load driver profile.");
+  }
+  upsertLocalDriver(data.driver);
+  useAppStore
+    .getState()
+    .setDriverOnline(isDriverAvailableStatus(data.driver.status));
+  return data.driver;
+}
+
+/** Sync Driver.status in Supabase + mirror local store / app.driverOnline. */
 export async function setDriverOnlineStatus(
   profileId: string,
   online: boolean
 ): Promise<Driver | null> {
-  const driver = findDriverForProfile(profileId);
+  let driver = findDriverForProfile(profileId);
   if (!driver) {
-    useAppStore.getState().setDriverOnline(online);
+    driver = await syncMyDriverProfile();
+  }
+  if (!driver) {
+    useAppStore.getState().setDriverOnline(false);
     return null;
   }
 
-  const updateDriver = useDataStore.getState().updateDriver;
+  const coords = online ? await readGeolocation() : null;
 
-  if (!online) {
-    updateDriver(driver.id, { status: "OFFLINE" });
-    useAppStore.getState().setDriverOnline(false);
-    return { ...driver, status: "OFFLINE" };
+  const res = await fetch("/api/drivers/me", {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      online,
+      latitude: coords?.lat ?? null,
+      longitude: coords?.lng ?? null,
+    }),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    driver?: Driver;
+    error?: string;
+  } | null;
+
+  if (!res.ok || !data?.driver) {
+    throw new Error(
+      data?.error || "No driver profile linked to this account."
+    );
   }
 
-  const coords = await readGeolocation();
-  const location = coords
-    ? buildLocation(driver.id, coords)
-    : driver.current_location;
-
   const deliveries = useAppStore.getState().deliveries;
-  const hasActive = !!getDriverActiveDelivery(deliveries, driver.id);
-  const nextStatus = hasActive ? ("BUSY" as const) : ("ONLINE" as const);
+  const hasActive = !!getDriverActiveDelivery(deliveries, data.driver.id);
+  const next =
+    online && hasActive
+      ? { ...data.driver, status: "BUSY" as const }
+      : data.driver;
 
-  updateDriver(driver.id, {
-    status: nextStatus,
-    ...(location ? { current_location: location } : {}),
-  });
-  useAppStore.getState().setDriverOnline(true);
-
-  return {
-    ...driver,
-    status: nextStatus,
-    current_location: location,
-  };
+  upsertLocalDriver(next);
+  useAppStore.getState().setDriverOnline(online);
+  return next;
 }
 
 /** Refresh GPS while the driver remains online. */
 export async function refreshDriverLocation(
   profileId: string
-): Promise<DriverLocation | null> {
+): Promise<null> {
   const driver = findDriverForProfile(profileId);
   if (!driver || !isDriverAvailableStatus(driver.status)) return null;
 
   const coords = await readGeolocation();
   if (!coords) return null;
 
-  const location = buildLocation(driver.id, coords);
-  useDataStore.getState().updateDriver(driver.id, {
-    current_location: location,
+  await fetch("/api/drivers/me", {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      online: true,
+      latitude: coords.lat,
+      longitude: coords.lng,
+    }),
+  }).catch(() => {
+    /* best-effort */
   });
-  return location;
+  return null;
 }
 
 /** Prefer Driver.status over the legacy global flag. */

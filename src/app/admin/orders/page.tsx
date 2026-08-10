@@ -14,7 +14,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { KANBAN_COLUMNS, STATUS_ACTIONS } from "@/lib/constants";
+import { KANBAN_COLUMNS, STATUS_ACTIONS, staffCanCancelOrder } from "@/lib/constants";
 import { canAccessAdmin, canAssignDrivers } from "@/lib/auth/config";
 import {
   formatCurrency,
@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 
 export default function AdminOrdersPage() {
   const orders = useAppStore((s) => s.orders);
-  const hasHydrated = useAppStore((s) => s.hasHydrated);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const updateOrderStatus = useAppStore((s) => s.updateOrderStatus);
@@ -89,9 +88,7 @@ export default function AdminOrdersPage() {
   };
 
   useEffect(() => {
-    // Wait until persist rehydrate + auth finish, or a successful fetch
-    // gets wiped by empty localStorage hydration.
-    if (!hasHydrated || authInitializing || !user || !canAccessAdmin(user.role)) {
+    if (authInitializing || !user || !canAccessAdmin(user.role)) {
       return;
     }
 
@@ -99,13 +96,30 @@ export default function AdminOrdersPage() {
     const id = window.setInterval(() => void refreshOrders({ silent: true }), 4000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasHydrated, authInitializing, user?.id, user?.role]);
+  }, [authInitializing, user?.id, user?.role]);
 
   const handleAdvance = (order: Order) => {
     const action = STATUS_ACTIONS[order.status];
     if (!action || order.status === "READY") return;
     updateOrderStatus(order.id, action.next);
     toast.success(`Order #${order.order_number} → ${action.next}`);
+  };
+
+  const handleCancelOrder = (order: Order) => {
+    if (!staffCanCancelOrder(order.status)) {
+      toast.error("This order can no longer be cancelled.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Cancel order #${order.order_number}? The customer will no longer be able to track it as active.`
+      )
+    ) {
+      return;
+    }
+    updateOrderStatus(order.id, "CANCELLED");
+    toast.success(`Order #${order.order_number} cancelled`);
+    setSelected(null);
   };
 
   const pendingCount = orders.filter((o) => o.status === "PENDING").length;
@@ -154,7 +168,7 @@ export default function AdminOrdersPage() {
             size="sm"
             className="shrink-0 rounded-xl"
             onClick={() => void refreshOrders()}
-            disabled={refreshing || authInitializing || !hasHydrated}
+            disabled={refreshing || authInitializing}
           >
             <RefreshCw
               className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")}
@@ -364,6 +378,16 @@ export default function AdminOrdersPage() {
                       {STATUS_ACTIONS[selected.status]!.label}
                     </Button>
                   )
+                )}
+                {staffCanCancelOrder(selected.status) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-red-200 text-red-600 hover:bg-red-50"
+                    onClick={() => handleCancelOrder(selected)}
+                  >
+                    Cancel order
+                  </Button>
                 )}
               </div>
             </>

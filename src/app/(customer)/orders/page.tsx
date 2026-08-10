@@ -109,13 +109,12 @@ export default function OrdersPage() {
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
   const allOrders = useAppStore((s) => s.orders);
-  const hasHydrated = useAppStore((s) => s.hasHydrated);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
   const [tab, setTab] = useState("active");
 
   useEffect(() => {
-    if (!hasHydrated || authInitializing || !user) return;
+    if (authInitializing || !user) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -129,7 +128,7 @@ export default function OrdersPage() {
           deliveries?: DeliveryOrder[];
         };
         if (cancelled) return;
-        // Supabase via /api/orders is the only source of truth.
+        // Database (Supabase) is the only source of truth.
         if (Array.isArray(data.orders)) setOrders(data.orders);
         if (Array.isArray(data.deliveries)) setDeliveries(data.deliveries);
       } catch {
@@ -139,7 +138,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasHydrated, authInitializing, user, setOrders, setDeliveries]);
+  }, [authInitializing, user, setOrders, setDeliveries]);
 
   const customerOrders = useMemo(
     () =>

@@ -162,4 +162,90 @@
   html {
     scroll-behavior: smooth;
   }
+
+  @keyframes tracking-pulse-ring {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    70% {
+      transform: scale(1.55);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1.55);
+      opacity: 0;
+    }
+  }
+
+  @keyframes tracking-dot-breathe {
+    0%,
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--green) 35%, transparent);
+    }
+    50% {
+      transform: scale(1.06);
+      box-shadow: 0 0 0 8px color-mix(in oklab, var(--green) 0%, transparent);
+    }
+  }
+
+  @keyframes tracking-progress-shimmer {
+    0% {
+      background-position: 100% 0;
+    }
+    100% {
+      background-position: -100% 0;
+    }
+  }
+
+  @keyframes tracking-now-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  .tracking-active-ring {
+    position: relative;
+  }
+
+  .tracking-active-ring::before,
+  .tracking-active-ring::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 9999px;
+    border: 2px solid color-mix(in oklab, var(--green) 55%, transparent);
+    animation: tracking-pulse-ring 2s ease-out infinite;
+    pointer-events: none;
+  }
+
+  .tracking-active-ring::after {
+    animation-delay: 1s;
+  }
+
+  .tracking-active-dot {
+    animation: tracking-dot-breathe 2s ease-in-out infinite;
+  }
+
+  .tracking-progress-live {
+    background-image: linear-gradient(
+      90deg,
+      var(--green) 0%,
+      var(--fresh) 45%,
+      color-mix(in oklab, var(--sky) 70%, white) 55%,
+      var(--green) 100%
+    );
+    background-size: 200% 100%;
+    animation: tracking-progress-shimmer 2.4s linear infinite;
+  }
+
+  .tracking-now-badge {
+    animation: tracking-now-pulse 1.6s ease-in-out infinite;
+  }
 }
+
