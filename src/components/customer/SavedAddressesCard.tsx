@@ -13,7 +13,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { LocationPinMap } from "@/components/customer/LocationPinMap";
+import {
+  isWithinSamalIsland,
+  SAMAL_MAP_CENTER,
+  SAMAL_SERVICE_MESSAGE,
+} from "@/lib/delivery/samal";
 import type { Address } from "@/types";
+import type { LatLng } from "@/lib/delivery/pricing";
 
 const MAX_ADDRESSES = 3;
 
@@ -24,15 +31,19 @@ type FormState = {
   city: string;
   deliveryInstructions: string;
   isDefault: boolean;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 const emptyForm = (): FormState => ({
   label: "Home",
   fullAddress: "",
   barangay: "",
-  city: "",
+  city: "Island Garden City of Samal",
   deliveryInstructions: "",
   isDefault: false,
+  latitude: SAMAL_MAP_CENTER.lat,
+  longitude: SAMAL_MAP_CENTER.lng,
 });
 
 function toForm(addr: Address): FormState {
@@ -40,9 +51,11 @@ function toForm(addr: Address): FormState {
     label: addr.label,
     fullAddress: addr.full_address,
     barangay: addr.barangay ?? "",
-    city: addr.city ?? "",
+    city: addr.city ?? "Island Garden City of Samal",
     deliveryInstructions: addr.delivery_instructions ?? "",
     isDefault: addr.is_default,
+    latitude: addr.latitude ?? SAMAL_MAP_CENTER.lat,
+    longitude: addr.longitude ?? SAMAL_MAP_CENTER.lng,
   };
 }
 
@@ -113,6 +126,14 @@ export function SavedAddressesCard() {
       toast.error("Enter a full delivery address.");
       return;
     }
+    if (
+      form.latitude == null ||
+      form.longitude == null ||
+      !isWithinSamalIsland(form.latitude, form.longitude)
+    ) {
+      toast.error(SAMAL_SERVICE_MESSAGE);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -120,8 +141,11 @@ export function SavedAddressesCard() {
         label,
         fullAddress,
         barangay: form.barangay.trim() || null,
-        city: form.city.trim() || null,
+        city: form.city.trim() || "Island Garden City of Samal",
+        province: "Davao del Norte",
         deliveryInstructions: form.deliveryInstructions.trim() || null,
+        latitude: form.latitude,
+        longitude: form.longitude,
         isDefault: form.isDefault,
       };
 
@@ -187,7 +211,7 @@ export function SavedAddressesCard() {
           <div>
             <h2 className="font-semibold text-navy">Saved Addresses</h2>
             <p className="text-xs text-muted-foreground">
-              Up to {MAX_ADDRESSES} delivery addresses
+              Up to {MAX_ADDRESSES} delivery addresses on Samal Island
             </p>
           </div>
           <Button
@@ -238,6 +262,17 @@ export function SavedAddressesCard() {
                     {(addr.barangay || addr.city) && (
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {[addr.barangay, addr.city].filter(Boolean).join(", ")}
+                      </p>
+                    )}
+                    {addr.latitude != null &&
+                    addr.longitude != null &&
+                    isWithinSamalIsland(addr.latitude, addr.longitude) ? (
+                      <p className="mt-1 text-[11px] font-medium text-green">
+                        Inside Samal Island
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[11px] font-medium text-destructive">
+                        Outside service area — edit pin
                       </p>
                     )}
                   </div>
@@ -304,6 +339,27 @@ export function SavedAddressesCard() {
                 placeholder="Street, building, landmark…"
                 className="mt-1.5 min-h-[80px] rounded-xl"
               />
+            </div>
+            <div>
+              <Label>Pin on Samal Island</Label>
+              <div className="mt-1.5">
+                <LocationPinMap
+                  value={
+                    form.latitude != null && form.longitude != null
+                      ? { lat: form.latitude, lng: form.longitude }
+                      : SAMAL_MAP_CENTER
+                  }
+                  onChange={(next: LatLng) =>
+                    setForm((f) => ({
+                      ...f,
+                      latitude: next.lat,
+                      longitude: next.lng,
+                      city: f.city || "Island Garden City of Samal",
+                    }))
+                  }
+                  heightClassName="h-52"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

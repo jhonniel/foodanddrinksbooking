@@ -24,12 +24,13 @@ import { useAppStore } from "@/stores/app";
 import { fetchCurrentProfile } from "@/services/authService";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import { DELIVERY_CONFIG, STORE_LOCATION } from "@/data/demo";
+import { STORE_LOCATION } from "@/data/demo";
 import {
   calculateDeliveryFee,
   formatDeliveryRateLabel,
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
+import { SAMAL_SERVICE_MESSAGE } from "@/lib/delivery/samal";
 import type { Address, Order, PaymentMethod } from "@/types";
 
 const PAYMENT_METHODS: {
@@ -169,13 +170,11 @@ export default function CheckoutPage() {
     }
     if (
       orderType === "DELIVERY" &&
-      address?.latitude != null &&
-      address?.longitude != null &&
-      !deliveryQuote.withinRadius
+      (address?.latitude == null ||
+        address?.longitude == null ||
+        !deliveryQuote.withinRadius)
     ) {
-      toast.error(
-        `Sorry, this address is outside our ${DELIVERY_CONFIG.radiusKm} km delivery radius.`
-      );
+      toast.error(SAMAL_SERVICE_MESSAGE);
       return;
     }
 
@@ -392,7 +391,7 @@ export default function CheckoutPage() {
                                   ? quote.isFree
                                     ? "Free"
                                     : formatCurrency(quote.fee)
-                                  : "Out of range"}
+                                  : "Outside Samal"}
                               </span>
                             )}
                           </div>
@@ -401,10 +400,9 @@ export default function CheckoutPage() {
                           </p>
                           {quote && (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              {formatDistanceKm(quote.distanceKm)} from store · ~
-                              {quote.estimatedMinutes} min
-                              {!quote.withinRadius &&
-                                ` · max ${DELIVERY_CONFIG.radiusKm} km`}
+                              {quote.withinRadius
+                                ? `${formatDistanceKm(quote.distanceKm)} from store · ~${quote.estimatedMinutes} min`
+                                : SAMAL_SERVICE_MESSAGE}
                             </p>
                           )}
                         </div>
@@ -439,9 +437,10 @@ export default function CheckoutPage() {
                 orderType === "DELIVERY" &&
                 (addresses.length === 0 ||
                   !selectedAddress ||
-                  (deliveryQuote.withinRadius === false &&
-                    address?.latitude != null &&
-                    address?.longitude != null))
+                  !address ||
+                  address.latitude == null ||
+                  address.longitude == null ||
+                  deliveryQuote.withinRadius === false)
               }
               className="flex-1 rounded-xl bg-green hover:bg-green/90"
             >
@@ -449,12 +448,12 @@ export default function CheckoutPage() {
             </Button>
           </div>
           {orderType === "DELIVERY" &&
-            address?.latitude != null &&
-            address?.longitude != null &&
-            !deliveryQuote.withinRadius && (
+            address &&
+            (address.latitude == null ||
+              address.longitude == null ||
+              !deliveryQuote.withinRadius) && (
             <p className="text-center text-xs text-destructive">
-              Selected address is outside our {DELIVERY_CONFIG.radiusKm} km
-              delivery area.
+              {SAMAL_SERVICE_MESSAGE} Edit the address pin on your Profile.
             </p>
           )}
         </div>

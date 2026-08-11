@@ -14,6 +14,7 @@ import {
   createOrderInSupabase,
   fetchOrdersFromSupabase,
 } from "@/lib/supabase/orders";
+import { assertDeliveryWithinSamal } from "@/lib/delivery/samal";
 import type { CartItem, PaymentMethod, OrderType } from "@/types";
 
 const num = z.coerce.number().finite();
@@ -233,6 +234,14 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+
+  if (data.orderType === "DELIVERY") {
+    const area = assertDeliveryWithinSamal(data.latitude, data.longitude);
+    if (!area.ok) {
+      return NextResponse.json({ error: area.error }, { status: 422 });
+    }
+  }
+
   const items = toCartItems(data.items);
   const address =
     data.orderType === "DELIVERY"

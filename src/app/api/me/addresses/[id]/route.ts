@@ -5,6 +5,7 @@ import {
   deleteAddressForCustomer,
   updateAddressForCustomer,
 } from "@/lib/supabase/addresses";
+import { assertDeliveryWithinSamal } from "@/lib/delivery/samal";
 
 const writeSchema = z.object({
   label: z.string().min(1).max(40).optional(),
@@ -36,6 +37,19 @@ export async function PATCH(
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },
       { status: 400 }
     );
+  }
+
+  if (
+    parsed.data.latitude !== undefined ||
+    parsed.data.longitude !== undefined
+  ) {
+    const area = assertDeliveryWithinSamal(
+      parsed.data.latitude,
+      parsed.data.longitude
+    );
+    if (!area.ok) {
+      return NextResponse.json({ error: area.error }, { status: 422 });
+    }
   }
 
   const result = await updateAddressForCustomer(session.id, id, parsed.data);

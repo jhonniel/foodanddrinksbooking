@@ -741,10 +741,10 @@ export const DEMO_NOTIFICATIONS: Notification[] = [
 
 export const STORE_LOCATION = {
   name: "Island Coolers",
-  address: "123 Beach Road, Cebu City",
+  address: "Babak, Island Garden City of Samal, Davao del Norte",
   phone: "+63 917 123 4567",
-  lat: 10.3157,
-  lng: 123.8854,
+  lat: 7.0745,
+  lng: 125.708,
   hours: "9:00 AM – 9:00 PM",
 };
 
@@ -752,6 +752,7 @@ export const STORE_LOCATION = {
  * Distance-based delivery pricing:
  * ₱baseFee covers the first baseKm km, then ₱perKmFee per succeeding km
  * Free when order subtotal >= freeAbove
+ * Service area: Samal Island only (see lib/delivery/samal.ts)
  */
 export const DELIVERY_CONFIG = {
   /** Fee for the first baseKm kilometers */
@@ -762,7 +763,7 @@ export const DELIVERY_CONFIG = {
   perKmFee: 2,
   /** Free delivery threshold (subtotal) */
   freeAbove: 500,
-  /** Max delivery radius in km */
+  /** Legacy display; service area is Samal Island polygon */
   radiusKm: 15,
   /** ETA: base minutes + minutesPerKm × distance */
   baseMinutes: 15,

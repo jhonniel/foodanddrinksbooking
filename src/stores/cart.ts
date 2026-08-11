@@ -67,8 +67,8 @@ export function formatCartOptions(
   return parts.join(" · ");
 }
 
-/** Default demo home coords so cart can preview distance fee */
-const DEFAULT_DELIVERY: LatLng = { lat: 10.335, lng: 123.905 };
+/** Default: no pin until user confirms Samal location */
+const DEFAULT_DELIVERY: LatLng | null = null;
 
 export const useCartStore = create<CartState>()(
   persist(
@@ -80,7 +80,7 @@ export const useCartStore = create<CartState>()(
       pointsDiscount: 0,
       orderType: "DELIVERY",
       deliveryLocation: DEFAULT_DELIVERY,
-      deliveryAddressLabel: "Home",
+      deliveryAddressLabel: null,
 
       addItem: (item) => {
         const id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -166,7 +166,7 @@ export const useCartStore = create<CartState>()(
         });
       },
     }),
-    { name: "island-coolers-cart-v2" }
+    { name: "island-coolers-cart-v3" }
   )
 );
 

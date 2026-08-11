@@ -6,6 +6,7 @@ import {
   listAddressesForCustomer,
   MAX_CUSTOMER_ADDRESSES,
 } from "@/lib/supabase/addresses";
+import { assertDeliveryWithinSamal } from "@/lib/delivery/samal";
 
 const writeSchema = z.object({
   label: z.string().min(1, "Label is required").max(40),
@@ -15,8 +16,14 @@ const writeSchema = z.object({
   province: z.string().max(80).optional().nullable(),
   postalCode: z.string().max(20).optional().nullable(),
   deliveryInstructions: z.string().max(500).optional().nullable(),
-  latitude: z.number().optional().nullable(),
-  longitude: z.number().optional().nullable(),
+  latitude: z.number({
+    required_error: "Pin your location on the map.",
+    invalid_type_error: "Pin your location on the map.",
+  }),
+  longitude: z.number({
+    required_error: "Pin your location on the map.",
+    invalid_type_error: "Pin your location on the map.",
+  }),
   isDefault: z.boolean().optional(),
 });
 
@@ -46,6 +53,14 @@ export async function POST(request: NextRequest) {
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },
       { status: 400 }
     );
+  }
+
+  const area = assertDeliveryWithinSamal(
+    parsed.data.latitude,
+    parsed.data.longitude
+  );
+  if (!area.ok) {
+    return NextResponse.json({ error: area.error }, { status: 422 });
   }
 
   const result = await createAddressForCustomer(session.id, parsed.data);

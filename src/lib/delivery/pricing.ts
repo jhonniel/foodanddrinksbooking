@@ -1,4 +1,5 @@
 import { STORE_LOCATION, DELIVERY_CONFIG } from "@/data/demo";
+import { isWithinSamalIsland } from "@/lib/delivery/samal";
 
 export interface LatLng {
   lat: number;
@@ -44,6 +45,7 @@ export function distanceFromStore(destination: LatLng): number {
 /**
  * ₱10 for the first 1 km, then ₱2 per succeeding km (rounded up).
  * Free when subtotal >= freeAbove.
+ * Delivery only inside Samal Island.
  */
 export function calculateDeliveryFee(
   destination: LatLng | null | undefined,
@@ -56,7 +58,7 @@ export function calculateDeliveryFee(
       distanceKm: 0,
       fee: baseFee,
       isFree: false,
-      withinRadius: true,
+      withinRadius: false,
       estimatedMinutes: DELIVERY_CONFIG.estimatedMinutes,
       breakdown: {
         baseFee,
@@ -66,16 +68,15 @@ export function calculateDeliveryFee(
     };
   }
 
+  const withinRadius = isWithinSamalIsland(destination.lat, destination.lng);
   const rawKm = distanceFromStore(destination);
-  const distanceKm = Math.round(rawKm * 10) / 10; // 1 decimal
-  // Succeeding km after the included baseKm, rounded up to whole km
+  const distanceKm = Math.round(rawKm * 10) / 10;
   const succeedingKm = Math.max(0, Math.ceil(distanceKm - baseKm));
   const distanceFee = succeedingKm * perKmFee;
   const calculatedFee = baseFee + distanceFee;
 
-  const withinRadius = distanceKm <= DELIVERY_CONFIG.radiusKm;
-  const isFree = subtotal >= DELIVERY_CONFIG.freeAbove;
-  const fee = isFree ? 0 : calculatedFee;
+  const isFree = withinRadius && subtotal >= DELIVERY_CONFIG.freeAbove;
+  const fee = !withinRadius ? 0 : isFree ? 0 : calculatedFee;
 
   const estimatedMinutes = Math.max(
     15,
@@ -105,5 +106,5 @@ export function formatDistanceKm(km: number): string {
 }
 
 export function formatDeliveryRateLabel(): string {
-  return `₱${DELIVERY_CONFIG.baseFee} first ${DELIVERY_CONFIG.baseKm} km · ₱${DELIVERY_CONFIG.perKmFee}/km after`;
+  return `₱${DELIVERY_CONFIG.baseFee} first ${DELIVERY_CONFIG.baseKm} km · ₱${DELIVERY_CONFIG.perKmFee}/km after · Samal Island only`;
 }

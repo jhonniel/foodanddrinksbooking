@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Category, Product } from "@/types";
 import { UtensilsCrossed } from "lucide-react";
+import { DeliveryLocationGate } from "@/components/customer/DeliveryLocationGate";
 
 function MenuContent() {
   const router = useRouter();
@@ -87,10 +88,11 @@ function MenuContent() {
 
   return (
     <div className="space-y-5 pb-4">
+      <DeliveryLocationGate />
       <div>
         <h1 className="text-2xl font-bold text-navy">Menu</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Soda, coffee, matcha &amp; more
+          Soda, coffee, matcha &amp; more · Delivery on Samal Island only
         </p>
       </div>
 
