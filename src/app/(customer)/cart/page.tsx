@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/delivery/pricing";
 
 export default function CartPage() {
+  const searchParams = useSearchParams();
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const setPromo = useCartStore((s) => s.setPromo);
@@ -39,6 +41,11 @@ export default function CartPage() {
 
   const [codeInput, setCodeInput] = useState(promoCode ?? "");
   const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("code")?.trim();
+    if (fromUrl) setCodeInput(fromUrl.toUpperCase());
+  }, [searchParams]);
 
   const handleApplyPromo = async () => {
     if (!codeInput.trim()) return;
@@ -146,7 +153,10 @@ export default function CartPage() {
       </div>
 
       <div className="rounded-2xl bg-white p-4 shadow-card">
-        <p className="mb-2 text-sm font-semibold text-navy">Promo Code</p>
+        <p className="mb-1 text-sm font-semibold text-navy">Promo Code</p>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Redeem a code on Rewards first, or apply a saved voucher here.
+        </p>
         <div className="flex gap-2">
           <Input
             placeholder="Enter code"

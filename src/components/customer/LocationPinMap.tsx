@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Crosshair, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getMapTileConfig } from "@/lib/maps/tiles";
 import type { LatLng } from "@/lib/delivery/pricing";
 import {
   isWithinSamalIsland,
-  SAMAL_ISLAND_POLYGON,
   SAMAL_MAP_CENTER,
   SAMAL_SERVICE_MESSAGE,
 } from "@/lib/delivery/samal";
@@ -35,11 +35,6 @@ export function LocationPinMap({
   const pin = value ?? SAMAL_MAP_CENTER;
   const inside = isWithinSamalIsland(pin.lat, pin.lng);
 
-  const polygonLatLngs = useMemo(
-    () => SAMAL_ISLAND_POLYGON.map((p) => [p.lat, p.lng] as [number, number]),
-    []
-  );
-
   useEffect(() => {
     let cancelled = false;
 
@@ -60,22 +55,16 @@ export function LocationPinMap({
           "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       });
 
+      const tiles = getMapTileConfig();
       const map = L.map(containerRef.current, {
         center: [pin.lat, pin.lng],
         zoom: 12,
         scrollWheelZoom: true,
       });
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap",
-        maxZoom: 19,
-      }).addTo(map);
-
-      L.polygon(polygonLatLngs, {
-        color: "#1FA7E1",
-        weight: 2,
-        fillColor: "#1FA7E1",
-        fillOpacity: 0.12,
+      L.tileLayer(tiles.url, {
+        attribution: tiles.attribution,
+        maxZoom: tiles.maxZoom,
       }).addTo(map);
 
       const marker = L.marker([pin.lat, pin.lng], { draggable: true }).addTo(
@@ -97,6 +86,7 @@ export function LocationPinMap({
       markerRef.current = marker;
       setReady(true);
       requestAnimationFrame(() => map.invalidateSize());
+      window.setTimeout(() => map.invalidateSize(), 250);
     }
 
     void init();
@@ -151,7 +141,7 @@ export function LocationPinMap({
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Tap the map or drag the pin. Blue area = Samal Island.
+          Tap the map or drag the pin to set your delivery location.
         </p>
         <Button
           type="button"
@@ -184,19 +174,14 @@ export function LocationPinMap({
         )}
       </div>
 
-      <p
-        className={cn(
-          "text-xs font-medium",
-          inside ? "text-green" : "text-destructive"
-        )}
-      >
-        {inside
-          ? "Pin is inside Samal Island — delivery available."
-          : SAMAL_SERVICE_MESSAGE}
-      </p>
-      {geoError && !inside && (
+      {!inside ? (
+        <p className="text-xs font-medium text-destructive">
+          {SAMAL_SERVICE_MESSAGE}
+        </p>
+      ) : null}
+      {geoError && !inside ? (
         <p className="text-xs text-destructive">{geoError}</p>
-      )}
+      ) : null}
       <p className="text-[11px] text-muted-foreground">
         {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)}
       </p>

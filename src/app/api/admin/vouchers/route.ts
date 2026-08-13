@@ -15,10 +15,12 @@ const createSchema = z.object({
   name: z.string().min(2).max(80),
   description: z.string().max(300).optional().nullable(),
   promoCode: z
-    .string()
-    .min(3)
-    .max(32)
-    .transform((v) => v.trim().toUpperCase()),
+    .union([z.string(), z.null()])
+    .optional()
+    .transform((v) => {
+      const trimmed = (v ?? "").trim().toUpperCase();
+      return trimmed || null;
+    }),
   type: z.enum(["PERCENTAGE", "FIXED"]),
   discountValue: z.coerce.number().positive(),
   minOrderAmount: z.coerce.number().nonnegative().optional().default(0),
@@ -26,6 +28,23 @@ const createSchema = z.object({
   usageLimit: optionalUsageLimitSchema,
   endsAt: z.string().min(8).optional().nullable(),
   perCustomerLimit: z.coerce.number().int().min(1).max(10).optional().default(1),
+  redemptionMode: z.enum(["CLAIM", "MANUAL"]).optional().default("CLAIM"),
+  kind: z.enum(["VOUCHER", "PROMOTION"]).optional().default("VOUCHER"),
+}).superRefine((data, ctx) => {
+  if (data.kind === "VOUCHER" && !data.promoCode) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Vouchers require a promo code.",
+      path: ["promoCode"],
+    });
+  }
+  if (data.promoCode && !/^[A-Z0-9_-]{3,32}$/.test(data.promoCode)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Code must be 3–32 characters (letters, numbers, _ or -).",
+      path: ["promoCode"],
+    });
+  }
 });
 
 export async function GET(request: NextRequest) {
@@ -86,6 +105,8 @@ export async function POST(request: NextRequest) {
     usageLimit: data.usageLimit ?? null,
     endsAt: data.endsAt ?? null,
     perCustomerLimit: data.perCustomerLimit,
+    redemptionMode: data.redemptionMode,
+    kind: data.kind,
   });
 
   if ("error" in result) {

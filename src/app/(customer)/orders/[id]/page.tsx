@@ -17,7 +17,7 @@ import { OrderTrackingStepper } from "@/components/customer/OrderTrackingStepper
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useCartStore } from "@/stores/cart";
-import { getMapProvider } from "@/lib/maps/provider";
+import { MapEmbed } from "@/components/shared/MapEmbed";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { customerCanCancelOrder } from "@/lib/constants";
 
@@ -36,17 +36,18 @@ export default function OrderDetailPage() {
   const order = orders.find((o) => o.id === orderId);
   const delivery = deliveries.find((d) => d.order_id === orderId);
 
-  const mapUrl = useMemo(() => {
+  const mapCenter = useMemo(() => {
     if (!order || order.order_type !== "DELIVERY") return null;
-    const lat =
-      order.delivery_address_snapshot?.latitude ??
-      delivery?.customer_latitude ??
-      10.335;
-    const lng =
-      order.delivery_address_snapshot?.longitude ??
-      delivery?.customer_longitude ??
-      123.905;
-    return getMapProvider().getEmbedUrl({ lat, lng });
+    return {
+      lat:
+        order.delivery_address_snapshot?.latitude ??
+        delivery?.customer_latitude ??
+        10.335,
+      lng:
+        order.delivery_address_snapshot?.longitude ??
+        delivery?.customer_longitude ??
+        123.905,
+    };
   }, [order, delivery]);
 
   const rider = delivery?.driver ?? null;
@@ -172,7 +173,7 @@ export default function OrderDetailPage() {
 
       <OrderTrackingStepper order={order} />
 
-      {showLiveExtras && mapUrl && (
+      {showLiveExtras && mapCenter && (
         <div className="overflow-hidden rounded-2xl bg-white shadow-card">
           <div className="border-b px-4 py-3">
             <h2 className="font-semibold text-navy">Delivery location</h2>
@@ -181,13 +182,7 @@ export default function OrderDetailPage() {
             </p>
           </div>
           <div className="relative aspect-video w-full bg-light-blue">
-            <iframe
-              title="Delivery map"
-              src={mapUrl}
-              className="h-full w-full border-0"
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
+            <MapEmbed center={mapCenter} />
           </div>
         </div>
       )}

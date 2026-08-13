@@ -24,7 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Promotion, PromotionType } from "@/types";
+import type { PromoKind, Promotion, PromotionType, VoucherRedemptionMode } from "@/types";
+import {
+  promoKindHint,
+  promoKindLabel,
+} from "@/lib/vouchers/promoKind";
+import {
+  redemptionModeHint,
+  redemptionModeLabel,
+} from "@/lib/vouchers/redemptionMode";
 
 function defaultEndsAtLocal(): string {
   const d = new Date();
@@ -68,6 +76,9 @@ export default function AdminPromotionsPage() {
   const [minOrderAmount, setMinOrderAmount] = useState("");
   const [usageLimit, setUsageLimit] = useState("");
   const [endsAt, setEndsAt] = useState("");
+  const [kind, setKind] = useState<PromoKind>("VOUCHER");
+  const [redemptionMode, setRedemptionMode] =
+    useState<VoucherRedemptionMode>("CLAIM");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -109,6 +120,8 @@ export default function AdminPromotionsPage() {
     setMinOrderAmount("");
     setUsageLimit("");
     setEndsAt("");
+    setKind("VOUCHER");
+    setRedemptionMode("CLAIM");
   };
 
   const handleOpenChange = (open: boolean) => {
@@ -135,6 +148,8 @@ export default function AdminPromotionsPage() {
       promo.usage_limit != null ? String(promo.usage_limit) : ""
     );
     setEndsAt(promo.ends_at ? toLocalInput(promo.ends_at) : "");
+    setKind(promo.kind ?? "VOUCHER");
+    setRedemptionMode(promo.redemption_mode ?? "CLAIM");
     setDialogOpen(true);
   };
 
@@ -155,11 +170,15 @@ export default function AdminPromotionsPage() {
     }
 
     if (!trimmedName) {
-      toast.error("Promotion name is required.");
+      toast.error("Name is required.");
       return;
     }
-    if (!code || code.length < 3) {
-      toast.error("Enter a custom code (at least 3 characters).");
+    if (kind === "VOUCHER" && (!code || code.length < 3)) {
+      toast.error("Vouchers require a custom code (at least 3 characters).");
+      return;
+    }
+    if (kind === "PROMOTION" && code && code.length < 3) {
+      toast.error("If you add a code, use at least 3 characters.");
       return;
     }
     if (!discountValue || isNaN(discount) || discount <= 0) {
@@ -201,12 +220,14 @@ export default function AdminPromotionsPage() {
             body: JSON.stringify({
               name: trimmedName,
               description: description.trim() || null,
-              promoCode: code,
+              promoCode: code || null,
               type,
               discountValue: discount,
               minOrderAmount: minOrder || 0,
               usageLimit: limit,
               endsAt: endsIso,
+              redemptionMode: kind === "VOUCHER" ? redemptionMode : "MANUAL",
+              kind,
             }),
           });
           const data = (await res.json().catch(() => null)) as {
@@ -226,12 +247,14 @@ export default function AdminPromotionsPage() {
         updatePromotionLocal(editing.id, {
           name: trimmedName,
           description: description.trim() || null,
-          promo_code: code,
+          promo_code: code || null,
           type,
           discount_value: discount,
           min_order_amount: minOrder || 0,
           usage_limit: limit,
           ends_at: endsIso,
+          redemption_mode: kind === "VOUCHER" ? redemptionMode : "MANUAL",
+          kind,
         });
         toast.success(`Voucher ${code} updated.`);
         setDialogOpen(false);
@@ -247,13 +270,15 @@ export default function AdminPromotionsPage() {
         body: JSON.stringify({
           name: trimmedName,
           description: description.trim() || null,
-          promoCode: code,
+          promoCode: code || null,
           type,
           discountValue: discount,
           minOrderAmount: minOrder || 0,
           usageLimit: limit,
           endsAt: endsIso,
           perCustomerLimit: 1,
+          redemptionMode: kind === "VOUCHER" ? redemptionMode : "MANUAL",
+          kind,
         }),
       });
       const data = (await res.json().catch(() => null)) as {
@@ -262,7 +287,9 @@ export default function AdminPromotionsPage() {
       } | null;
 
       if (res.ok && data?.voucher) {
-        toast.success(`Voucher ${code} created.`);
+        toast.success(
+          `${kind === "PROMOTION" ? "Promotion" : "Voucher"} "${trimmedName}" created.`
+        );
         setDialogOpen(false);
         resetForm();
         await refresh();
@@ -273,16 +300,18 @@ export default function AdminPromotionsPage() {
         addPromotion({
           name: trimmedName,
           description: description.trim() || undefined,
-          promoCode: code,
+          promoCode: code || undefined,
           type,
           discountValue: discount,
           minOrderAmount: minOrder || 0,
           usageLimit: limit,
           endsAt: endsIso ?? undefined,
           perCustomerLimit: 1,
+          redemptionMode: kind === "VOUCHER" ? redemptionMode : "MANUAL",
+          kind,
         });
         toast.success(
-          `Voucher ${code} saved locally (configure Supabase for production).`
+          `${kind === "PROMOTION" ? "Promotion" : "Voucher"} saved locally (configure Supabase for production).`
         );
         setDialogOpen(false);
         resetForm();
@@ -372,7 +401,8 @@ export default function AdminPromotionsPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy">Promotions</h1>
           <p className="text-sm text-muted-foreground">
-            Create, update, or delete vouchers. Customers claim them on Rewards.
+            Create vouchers for Rewards redemption or promotions for the home
+            page.
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
@@ -382,22 +412,51 @@ export default function AdminPromotionsPage() {
             className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-green px-2.5 text-sm font-medium text-white hover:bg-green/90"
           >
             <Plus className="h-4 w-4" />
-            Create Voucher
+            Create
           </Button>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
-                {editing ? "Edit Voucher" : "Create Voucher"}
+                {editing
+                  ? kind === "PROMOTION"
+                    ? "Edit Promotion"
+                    : "Edit Voucher"
+                  : kind === "PROMOTION"
+                    ? "Create Promotion"
+                    : "Create Voucher"}
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
+              <div>
+                <Label>Type *</Label>
+                <Select
+                  value={kind}
+                  onValueChange={(v) => v && setKind(v as PromoKind)}
+                  disabled={Boolean(editing)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="VOUCHER">Voucher</SelectItem>
+                    <SelectItem value="PROMOTION">Promotion</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {promoKindHint(kind)}
+                </p>
+              </div>
               <div>
                 <Label htmlFor="promo-name">Name *</Label>
                 <Input
                   id="promo-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Weekend Cooler Deal"
+                  placeholder={
+                    kind === "PROMOTION"
+                      ? "Summer drink specials on the home page"
+                      : "Weekend Cooler Deal"
+                  }
                 />
               </div>
               <div>
@@ -406,21 +465,56 @@ export default function AdminPromotionsPage() {
                   id="promo-desc"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Claim on Rewards, then use in Cart"
+                  placeholder={
+                    kind === "PROMOTION"
+                      ? "Shown to customers on the home page"
+                      : "Optional details for customers"
+                  }
                   rows={2}
                 />
               </div>
+              {kind === "VOUCHER" ? (
+                <div>
+                  <Label>How customers redeem *</Label>
+                  <Select
+                    value={redemptionMode}
+                    onValueChange={(v) =>
+                      v && setRedemptionMode(v as VoucherRedemptionMode)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CLAIM">Claim on Rewards</SelectItem>
+                      <SelectItem value="MANUAL">Redeem code on Rewards</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {redemptionModeHint(redemptionMode)}
+                  </p>
+                </div>
+              ) : null}
               <div>
-                <Label htmlFor="promo-code">Custom code *</Label>
+                <Label htmlFor="promo-code">
+                  {kind === "VOUCHER" ? "Custom code *" : "Display code (optional)"}
+                </Label>
                 <Input
                   id="promo-code"
                   value={promoCode}
                   onChange={(e) =>
                     setPromoCode(e.target.value.toUpperCase().replace(/\s/g, ""))
                   }
-                  placeholder="SAMAL50"
+                  placeholder={kind === "VOUCHER" ? "SAMAL50" : "SUMMER30"}
                   className="font-mono uppercase"
                 />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {kind === "VOUCHER"
+                    ? redemptionMode === "MANUAL"
+                      ? "Customers redeem this code on Rewards."
+                      : "Used after claim; customers tap Claim on Rewards."
+                    : "Optional code badge on the home page. Not redeemable."}
+                </p>
               </div>
               <div>
                 <Label>Discount type *</Label>
@@ -507,6 +601,8 @@ export default function AdminPromotionsPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : editing ? (
                   "Save Changes"
+                ) : kind === "PROMOTION" ? (
+                  "Save Promotion"
                 ) : (
                   "Save Voucher"
                 )}
@@ -516,6 +612,20 @@ export default function AdminPromotionsPage() {
         </Dialog>
       </div>
 
+      <div className="mb-6 rounded-2xl border border-sky/20 bg-light-blue/50 px-4 py-3 text-sm text-navy/80">
+        <p className="font-medium text-navy">Types</p>
+        <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-muted-foreground">
+          <li>
+            <span className="text-navy/80">Voucher</span> — customers redeem on
+            Rewards and use at checkout
+          </li>
+          <li>
+            <span className="text-navy/80">Promotion</span> — marketing offer
+            shown on the customer home page
+          </li>
+        </ul>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-12 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin" />
@@ -523,10 +633,9 @@ export default function AdminPromotionsPage() {
       ) : vouchers.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-white p-10 text-center">
           <Megaphone className="mx-auto h-8 w-8 text-sky" />
-          <p className="mt-3 font-semibold text-navy">No vouchers yet</p>
+          <p className="mt-3 font-semibold text-navy">Nothing here yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Create a voucher with a custom code. Redeem limit and expiration are
-            optional.
+            Create a voucher for Rewards or a promotion for the home page.
           </p>
         </div>
       ) : (
@@ -552,9 +661,19 @@ export default function AdminPromotionsPage() {
                         <h3 className="text-lg font-semibold text-navy">
                           {promo.name}
                         </h3>
-                        <Badge className="bg-green font-mono">
-                          {promo.promo_code}
+                        <Badge variant="outline">
+                          {promoKindLabel(promo.kind ?? "VOUCHER")}
                         </Badge>
+                        {promo.promo_code ? (
+                          <Badge className="bg-green font-mono">
+                            {promo.promo_code}
+                          </Badge>
+                        ) : null}
+                        {(promo.kind ?? "VOUCHER") === "VOUCHER" ? (
+                          <Badge variant="outline">
+                            {redemptionModeLabel(promo.redemption_mode ?? "CLAIM")}
+                          </Badge>
+                        ) : null}
                         <Badge
                           variant={
                             promo.is_active && !expired && !soldOut
@@ -572,8 +691,22 @@ export default function AdminPromotionsPage() {
                         </Badge>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {promo.description || "Claimable voucher"}
+                        {promo.description ||
+                          ((promo.kind ?? "VOUCHER") === "PROMOTION"
+                            ? "Home page promotion"
+                            : promo.redemption_mode === "MANUAL"
+                              ? "Code redeemed on Rewards"
+                              : "Claimable voucher")}
                       </p>
+                      {(promo.kind ?? "VOUCHER") === "VOUCHER" ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {redemptionModeHint(promo.redemption_mode ?? "CLAIM")}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {promoKindHint("PROMOTION")}
+                        </p>
+                      )}
                       <div className="mt-2 flex flex-wrap gap-4 text-sm">
                         <span>
                           Discount:{" "}

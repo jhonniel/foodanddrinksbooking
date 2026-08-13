@@ -6,7 +6,8 @@ import { Navigation, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { Button } from "@/components/ui/button";
-import { getMapProvider, openExternalNavigation } from "@/lib/maps/provider";
+import { MapEmbed } from "@/components/shared/MapEmbed";
+import { openExternalNavigation } from "@/lib/maps/provider";
 import { STORE_LOCATION } from "@/data/demo";
 import { EmptyState } from "@/components/shared/EmptyState";
 
@@ -33,7 +34,6 @@ function NavigateContent() {
     );
   }
 
-  const mapProvider = getMapProvider();
   const center = {
     lat: delivery.customer_latitude ?? STORE_LOCATION.lat,
     lng: delivery.customer_longitude ?? STORE_LOCATION.lng,
@@ -67,12 +67,7 @@ function NavigateContent() {
   return (
     <div className="flex flex-col">
       <div className="relative aspect-[4/3] w-full bg-light-blue">
-        <iframe
-          title="Navigation map"
-          src={mapProvider.getEmbedUrl(center, 15)}
-          className="h-full w-full border-0"
-          allowFullScreen
-        />
+        <MapEmbed center={center} zoom={15} />
       </div>
       <div className="space-y-3 p-4">
         <p className="text-sm text-muted-foreground">

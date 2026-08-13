@@ -1,6 +1,13 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { normalizeUsageLimit } from "@/lib/vouchers/usageLimit";
-import type { Promotion, PromotionType, VoucherClaim } from "@/types";
+import { normalizePromoKind, isVoucherKind } from "@/lib/vouchers/promoKind";
+import {
+  isClaimRedemption,
+  isManualRedemption,
+  normalizeRedemptionMode,
+  requiresVoucherWallet,
+} from "@/lib/vouchers/redemptionMode";
+import type { PromoKind, Promotion, PromotionType, VoucherClaim, VoucherRedemptionMode } from "@/types";
 
 export function mapPromotion(row: Record<string, unknown>): Promotion {
   return {
@@ -19,6 +26,8 @@ export function mapPromotion(row: Record<string, unknown>): Promotion {
       row.per_customer_limit != null ? Number(row.per_customer_limit) : 1,
     starts_at: String(row.starts_at ?? new Date().toISOString()),
     ends_at: row.ends_at != null ? String(row.ends_at) : null,
+    redemption_mode: normalizeRedemptionMode(row.redemption_mode),
+    kind: normalizePromoKind(row.kind),
     is_active: Boolean(row.is_active ?? true),
     image_url: (row.image_url as string | null) ?? null,
     created_at: String(row.created_at ?? new Date().toISOString()),
@@ -82,7 +91,8 @@ export async function listPromotionsFromSupabase(): Promise<Promotion[]> {
 }
 
 export async function findPromotionByCode(
-  code: string
+  code: string,
+  options?: { vouchersOnly?: boolean }
 ): Promise<Promotion | null> {
   const client = await createServerClient();
   if (!client) return null;
@@ -93,13 +103,17 @@ export async function findPromotionByCode(
     .eq("promo_code", normalized)
     .maybeSingle();
   if (error || !data) return null;
-  return mapPromotion(data as Record<string, unknown>);
+  const promo = mapPromotion(data as Record<string, unknown>);
+  if (options?.vouchersOnly !== false && !isVoucherKind(promo)) {
+    return null;
+  }
+  return promo;
 }
 
 export type CreateVoucherInput = {
   name: string;
   description?: string | null;
-  promoCode: string;
+  promoCode?: string | null;
   type: PromotionType;
   discountValue: number;
   minOrderAmount?: number;
@@ -109,6 +123,8 @@ export type CreateVoucherInput = {
   endsAt?: string | null;
   startsAt?: string;
   perCustomerLimit?: number;
+  redemptionMode?: VoucherRedemptionMode;
+  kind?: PromoKind;
 };
 
 export async function createVoucherInSupabase(
@@ -117,12 +133,19 @@ export async function createVoucherInSupabase(
   const client = await createServerClient();
   if (!client) return { error: "Supabase is not configured.", status: 503 };
 
-  const code = input.promoCode.trim().toUpperCase();
-  if (!/^[A-Z0-9_-]{3,32}$/.test(code)) {
-    return {
-      error: "Code must be 3–32 characters (letters, numbers, _ or -).",
-      status: 400,
-    };
+  const kind = normalizePromoKind(input.kind);
+  const codeRaw = input.promoCode?.trim().toUpperCase() ?? "";
+  let code: string | null = null;
+  if (codeRaw) {
+    if (!/^[A-Z0-9_-]{3,32}$/.test(codeRaw)) {
+      return {
+        error: "Code must be 3–32 characters (letters, numbers, _ or -).",
+        status: 400,
+      };
+    }
+    code = codeRaw;
+  } else if (kind === "VOUCHER") {
+    return { error: "Vouchers require a promo code.", status: 400 };
   }
   const usageLimit = normalizeUsageLimit(input.usageLimit);
 
@@ -152,6 +175,8 @@ export async function createVoucherInSupabase(
       per_customer_limit: input.perCustomerLimit ?? 1,
       starts_at: startsAt.toISOString(),
       ends_at: endsAtIso,
+      redemption_mode: normalizeRedemptionMode(input.redemptionMode),
+      kind,
       is_active: true,
     })
     .select("*")
@@ -204,6 +229,8 @@ export type UpdateVoucherInput = {
   /** null clears expiration (never expires) */
   endsAt?: string | null;
   isActive?: boolean;
+  redemptionMode?: VoucherRedemptionMode;
+  kind?: PromoKind;
 };
 
 export async function updateVoucherInSupabase(
@@ -251,6 +278,12 @@ export async function updateVoucherInSupabase(
     }
   }
   if (input.isActive != null) patch.is_active = input.isActive;
+  if (input.redemptionMode != null) {
+    patch.redemption_mode = normalizeRedemptionMode(input.redemptionMode);
+  }
+  if (input.kind != null) {
+    patch.kind = normalizePromoKind(input.kind);
+  }
 
   const { data, error } = await client
     .from("promotions")
@@ -327,27 +360,130 @@ export async function listClaimableVouchersForCustomer(
     )
   );
 
-  const claimed: VoucherClaim[] = (claims ?? []).map((row) => {
-    const r = row as Record<string, unknown>;
-    const promoRow = r.promotions as Record<string, unknown> | null;
-    return {
-      id: String(r.id),
-      promotion_id: String(r.promotion_id),
-      customer_id: String(r.customer_id),
-      claimed_at: String(r.claimed_at),
-      promotion: promoRow ? mapPromotion(promoRow) : undefined,
-    };
-  });
+  const claimed: VoucherClaim[] = (claims ?? [])
+    .map((row) => {
+      const r = row as Record<string, unknown>;
+      const promoRow = r.promotions as Record<string, unknown> | null;
+      return {
+        id: String(r.id),
+        promotion_id: String(r.promotion_id),
+        customer_id: String(r.customer_id),
+        claimed_at: String(r.claimed_at),
+        promotion: promoRow ? mapPromotion(promoRow) : undefined,
+      };
+    })
+    .filter((c) => c.promotion && isVoucherKind(c.promotion));
 
   const available = (promos ?? [])
     .map((row) => mapPromotion(row as Record<string, unknown>))
     .filter((p) => {
+      if (!isVoucherKind(p)) return false;
+      if (!isClaimRedemption(p)) return false;
       if (claimedIds.has(p.id)) return false;
       if (p.usage_limit != null && p.usage_count >= p.usage_limit) return false;
       return true;
     });
 
   return { available, claimed };
+}
+
+async function insertVoucherClaimForCustomer(
+  customerId: string,
+  promo: Promotion
+): Promise<
+  | { claim: VoucherClaim; promotion: Promotion }
+  | { error: string; status?: number }
+> {
+  const client = await createServerClient();
+  if (!client) return { error: "Supabase is not configured.", status: 503 };
+
+  const claimCount = await countClaimsForPromotion(promo.id);
+  if (promo.usage_limit != null && claimCount >= promo.usage_limit) {
+    return { error: "This voucher has reached its redeem limit.", status: 409 };
+  }
+
+  const { data: existing } = await client
+    .from("voucher_claims")
+    .select("id")
+    .eq("promotion_id", promo.id)
+    .eq("customer_id", customerId)
+    .maybeSingle();
+
+  if (existing) {
+    return { error: "You already have this voucher.", status: 409 };
+  }
+
+  const { data: claimRow, error: claimError } = await client
+    .from("voucher_claims")
+    .insert({
+      promotion_id: promo.id,
+      customer_id: customerId,
+    })
+    .select("*")
+    .single();
+
+  if (claimError || !claimRow) {
+    if (/duplicate|unique/i.test(claimError?.message ?? "")) {
+      return { error: "You already have this voucher.", status: 409 };
+    }
+    if (
+      /relation.*does not exist|voucher_claims/i.test(claimError?.message ?? "")
+    ) {
+      return {
+        error:
+          "Voucher claims table missing. Run supabase/migrations/007_voucher_claims.sql in the SQL Editor.",
+        status: 500,
+      };
+    }
+    return {
+      error: claimError?.message ?? "Could not save voucher.",
+      status: 400,
+    };
+  }
+
+  await client
+    .from("promotions")
+    .update({
+      usage_count: claimCount + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", promo.id);
+
+  const r = claimRow as Record<string, unknown>;
+  return {
+    promotion: promo,
+    claim: {
+      id: String(r.id),
+      promotion_id: String(r.promotion_id),
+      customer_id: String(r.customer_id),
+      claimed_at: String(r.claimed_at),
+      promotion: promo,
+    },
+  };
+}
+
+export async function redeemVoucherByCodeForCustomer(
+  customerId: string,
+  code: string
+): Promise<
+  | { claim: VoucherClaim; promotion: Promotion }
+  | { error: string; status?: number }
+> {
+  const promo = await findPromotionByCode(code);
+  if (!promo) {
+    return { error: "Invalid voucher code.", status: 404 };
+  }
+  if (!isVoucherKind(promo)) {
+    return {
+      error: "This code is for a home promotion, not a redeemable voucher.",
+      status: 400,
+    };
+  }
+
+  const validity = isPromotionCurrentlyValid(promo);
+  if (!validity.ok) return { error: validity.error, status: 400 };
+
+  return insertVoucherClaimForCustomer(customerId, promo);
 }
 
 export async function claimVoucherForCustomer(
@@ -371,78 +507,25 @@ export async function claimVoucherForCustomer(
   }
 
   const promo = mapPromotion(promoRow as Record<string, unknown>);
-  const validity = isPromotionCurrentlyValid(promo);
-  if (!validity.ok) return { error: validity.error, status: 400 };
-
-  const claimCount = await countClaimsForPromotion(promotionId);
-  if (promo.usage_limit != null && claimCount >= promo.usage_limit) {
-    return { error: "This voucher has reached its redeem limit.", status: 409 };
+  if (!isVoucherKind(promo)) {
+    return { error: "Only vouchers can be claimed.", status: 400 };
   }
-
-  const { data: existing } = await client
-    .from("voucher_claims")
-    .select("id")
-    .eq("promotion_id", promotionId)
-    .eq("customer_id", customerId)
-    .maybeSingle();
-
-  if (existing) {
-    return { error: "You already claimed this voucher.", status: 409 };
-  }
-
-  const { data: claimRow, error: claimError } = await client
-    .from("voucher_claims")
-    .insert({
-      promotion_id: promotionId,
-      customer_id: customerId,
-    })
-    .select("*")
-    .single();
-
-  if (claimError || !claimRow) {
-    if (/duplicate|unique/i.test(claimError?.message ?? "")) {
-      return { error: "You already claimed this voucher.", status: 409 };
-    }
-    if (
-      /relation.*does not exist|voucher_claims/i.test(claimError?.message ?? "")
-    ) {
-      return {
-        error:
-          "Voucher claims table missing. Run supabase/migrations/007_voucher_claims.sql in the SQL Editor.",
-        status: 500,
-      };
-    }
+  if (isManualRedemption(promo)) {
     return {
-      error: claimError?.message ?? "Could not claim voucher.",
+      error: "Enter this code under Redeem a code on Rewards.",
       status: 400,
     };
   }
+  const validity = isPromotionCurrentlyValid(promo);
+  if (!validity.ok) return { error: validity.error, status: 400 };
 
-  await client
-    .from("promotions")
-    .update({
-      usage_count: claimCount + 1,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", promotionId);
-
-  const r = claimRow as Record<string, unknown>;
-  return {
-    promotion: promo,
-    claim: {
-      id: String(r.id),
-      promotion_id: String(r.promotion_id),
-      customer_id: String(r.customer_id),
-      claimed_at: String(r.claimed_at),
-      promotion: promo,
-    },
-  };
+  return insertVoucherClaimForCustomer(customerId, promo);
 }
 
 export async function validatePromoAgainstSupabase(
   code: string,
   subtotal: number,
-  _customerId?: string | null
+  customerId?: string | null
 ): Promise<{
   valid: boolean;
   discount: number;
@@ -457,6 +540,37 @@ export async function validatePromoAgainstSupabase(
   const validity = isPromotionCurrentlyValid(promo);
   if (!validity.ok) {
     return { valid: false, discount: 0, error: validity.error };
+  }
+
+  if (requiresVoucherWallet(promo)) {
+    if (!customerId) {
+      return {
+        valid: false,
+        discount: 0,
+        error: "Sign in and redeem this voucher on Rewards first.",
+      };
+    }
+    const client = await createServerClient();
+    if (!client) {
+      return {
+        valid: false,
+        discount: 0,
+        error: "Could not verify voucher.",
+      };
+    }
+    const { data: claimRow } = await client
+      .from("voucher_claims")
+      .select("id")
+      .eq("promotion_id", promo.id)
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (!claimRow) {
+      return {
+        valid: false,
+        discount: 0,
+        error: "Redeem this voucher on Rewards before using it.",
+      };
+    }
   }
 
   if (subtotal < promo.min_order_amount) {

@@ -535,6 +535,10 @@ CREATE TABLE promotions (
   per_customer_limit INTEGER DEFAULT 1,
   starts_at TIMESTAMPTZ NOT NULL,
   ends_at TIMESTAMPTZ,
+  redemption_mode TEXT NOT NULL DEFAULT 'CLAIM'
+    CHECK (redemption_mode IN ('CLAIM', 'MANUAL')),
+  kind TEXT NOT NULL DEFAULT 'VOUCHER'
+    CHECK (kind IN ('VOUCHER', 'PROMOTION')),
   is_active BOOLEAN NOT NULL DEFAULT true,
   image_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

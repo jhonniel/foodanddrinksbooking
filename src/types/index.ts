@@ -387,6 +387,12 @@ export interface PointsTransaction {
   created_at: string;
 }
 
+/** How customers redeem an admin voucher. */
+export type VoucherRedemptionMode = "CLAIM" | "MANUAL";
+
+/** Voucher = redeemable; Promotion = home page marketing. */
+export type PromoKind = "VOUCHER" | "PROMOTION";
+
 export interface Promotion {
   id: string;
   name: string;
@@ -402,6 +408,10 @@ export interface Promotion {
   starts_at: string;
   /** null = never expires */
   ends_at: string | null;
+  /** CLAIM = Rewards tap; MANUAL = Cart promo code */
+  redemption_mode: VoucherRedemptionMode;
+  /** VOUCHER = Rewards/checkout; PROMOTION = home page display */
+  kind: PromoKind;
   is_active: boolean;
   image_url: string | null;
   created_at: string;

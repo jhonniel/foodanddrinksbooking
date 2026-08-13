@@ -27,6 +27,8 @@ const patchSchema = z.object({
   minOrderAmount: z.coerce.number().nonnegative().optional(),
   usageLimit: optionalUsageLimitSchema,
   endsAt: z.string().min(8).optional().nullable(),
+  redemptionMode: z.enum(["CLAIM", "MANUAL"]).optional(),
+  kind: z.enum(["VOUCHER", "PROMOTION"]).optional(),
 });
 
 export async function PATCH(
@@ -67,6 +69,8 @@ export async function PATCH(
     data.endsAt == null &&
     data.type == null &&
     data.minOrderAmount == null &&
+    data.redemptionMode == null &&
+    data.kind == null &&
     data.description === undefined
   ) {
     const result = await setVoucherActiveInSupabase(id, data.isActive);
@@ -96,6 +100,8 @@ export async function PATCH(
     usageLimit: data.usageLimit,
     endsAt: data.endsAt,
     isActive: data.isActive,
+    redemptionMode: data.redemptionMode,
+    kind: data.kind,
   });
 
   if ("error" in result) {

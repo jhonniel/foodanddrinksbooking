@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getCategories, getProducts } from "@/services/productService";
+import { getCategories, getProducts, validatePromoCode } from "@/services/productService";
 import { useCartStore } from "@/stores/cart";
 import { useDataStore } from "@/stores/data";
 import { buildDefaultCartItem } from "@/lib/cartHelpers";
@@ -27,6 +27,10 @@ function MenuContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const addItem = useCartStore((s) => s.addItem);
+  const promoCode = useCartStore((s) => s.promoCode);
+  const promoDiscount = useCartStore((s) => s.promoDiscount);
+  const cartSubtotal = useCartStore((s) => s.subtotal());
+  const setPromo = useCartStore((s) => s.setPromo);
   const storeProducts = useDataStore((s) => s.products);
   const storeCategories = useDataStore((s) => s.categories);
 
@@ -71,6 +75,23 @@ function MenuContent() {
       setLoading(false);
     });
   }, [categoryParam, search, sortParam, storeProducts]);
+
+  useEffect(() => {
+    if (!promoCode || cartSubtotal <= 0 || promoDiscount > 0) return;
+
+    let cancelled = false;
+    void validatePromoCode(promoCode, cartSubtotal).then((result) => {
+      if (cancelled) return;
+      if (result.valid) {
+        setPromo(promoCode, result.discount);
+        toast.success(`${promoCode} applied to your order!`);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [promoCode, cartSubtotal, promoDiscount, setPromo]);
 
   const handleAdd = (product: Product) => {
     if (product.options?.length) {

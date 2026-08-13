@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { AssignDriverControls } from "@/components/admin/AssignDriverControls";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getMapProvider } from "@/lib/maps/provider";
+import { MapEmbed } from "@/components/shared/MapEmbed";
 import { canAccessAdmin, canAssignDrivers } from "@/lib/auth/config";
 import { STORE_LOCATION } from "@/data/demo";
 import {
@@ -28,8 +28,6 @@ export default function AdminDeliveryPage() {
   const role = useAuthStore((s) => s.user?.role);
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
-
-  const mapProvider = getMapProvider();
 
   useEffect(() => {
     if (authInitializing || !user || !canAccessAdmin(user.role)) return;
@@ -195,18 +193,15 @@ export default function AdminDeliveryPage() {
                       </h3>
                     </div>
                     <div className="aspect-video">
-                      <iframe
-                        title="Delivery map"
-                        src={mapProvider.getEmbedUrl({
+                      <MapEmbed
+                        center={{
                           lat:
                             activeDelivery.customer_latitude ??
                             STORE_LOCATION.lat,
                           lng:
                             activeDelivery.customer_longitude ??
                             STORE_LOCATION.lng,
-                        })}
-                        className="h-full w-full border-0"
-                        allowFullScreen
+                        }}
                       />
                     </div>
                   </div>

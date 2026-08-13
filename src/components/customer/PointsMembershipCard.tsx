@@ -208,17 +208,6 @@ export function PointsMembershipCard({
             </div>
           </div>
         </div>
-
-        {needsGesture && (
-          <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl border border-white/25 bg-navy/75 px-3 py-2.5 text-center backdrop-blur-md">
-            <p className="text-[11px] font-semibold text-white">
-              Tap card to enable motion tilt
-            </p>
-            <p className="mt-0.5 text-[10px] text-white/60">
-              Required on iPhone Safari / mobile web
-            </p>
-          </div>
-        )}
       </div>
     </motion.div>
   );

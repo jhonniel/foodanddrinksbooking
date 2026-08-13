@@ -10,6 +10,7 @@ import {
   isPromotionCurrentlyValid,
   validatePromoAgainstSupabase,
 } from "@/lib/supabase/vouchers";
+import { requiresVoucherWallet } from "@/lib/vouchers/redemptionMode";
 
 const bodySchema = promoCodeSchema.and(
   z.object({
@@ -66,6 +67,12 @@ export async function POST(request: NextRequest) {
   const validity = isPromotionCurrentlyValid(promo);
   if (!validity.ok) {
     return NextResponse.json({ error: validity.error }, { status: 400 });
+  }
+  if (requiresVoucherWallet(promo) && !session?.id) {
+    return NextResponse.json(
+      { error: "Sign in and redeem this voucher on Rewards first." },
+      { status: 400 }
+    );
   }
   if (subtotal < promo.min_order_amount) {
     return NextResponse.json(

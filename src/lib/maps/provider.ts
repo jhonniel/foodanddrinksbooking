@@ -1,3 +1,5 @@
+import { getTomTomApiKey } from "@/lib/maps/tiles";
+
 export interface LatLng {
   lat: number;
   lng: number;
@@ -27,6 +29,54 @@ export interface MapProvider {
     size?: string
   ): string;
   openNavigation(destination: LatLng, label?: string): void;
+}
+
+export class TomTomProvider implements MapProvider {
+  readonly name = "tomtom";
+  private apiKey: string;
+  private staticLayer = "basic_main";
+
+  constructor(apiKey?: string) {
+    this.apiKey = apiKey || getTomTomApiKey();
+  }
+
+  getEmbedUrl(center: LatLng, zoom = 14): string {
+    if (!this.apiKey) {
+      return this.fallbackEmbed(center, zoom);
+    }
+    return `https://api.tomtom.com/map/1/staticimage?key=${this.apiKey}&center=${center.lng},${center.lat}&zoom=${zoom}&width=800&height=450&format=png&layer=${this.staticLayer}`;
+  }
+
+  getDirectionsUrl(route: MapRoute): string {
+    return `https://www.tomtom.com/maps/directions?start=${route.origin.lat},${route.origin.lng}&end=${route.destination.lat},${route.destination.lng}`;
+  }
+
+  getStaticMapUrl(
+    center: LatLng,
+    markers: MapMarker[] = [],
+    zoom = 14,
+    size = "600x400"
+  ): string {
+    if (!this.apiKey) {
+      return `https://placehold.co/${size}/EAF8FC/0B2A4A?text=Map`;
+    }
+    const [width, height] = size.split("x");
+    const markerStr = markers
+      .map((m) => `${m.position.lng},${m.position.lat};red`)
+      .join("|");
+    const markersParam = markerStr ? `&markers=${encodeURIComponent(markerStr)}` : "";
+    return `https://api.tomtom.com/map/1/staticimage?key=${this.apiKey}&center=${center.lng},${center.lat}&zoom=${zoom}&width=${width}&height=${height}&format=png&layer=${this.staticLayer}${markersParam}`;
+  }
+
+  openNavigation(destination: LatLng, label?: string): void {
+    const url = `https://www.tomtom.com/maps/directions?end=${destination.lat},${destination.lng}${label ? `&destination=${encodeURIComponent(label)}` : ""}`;
+    if (typeof window !== "undefined") window.open(url, "_blank");
+  }
+
+  private fallbackEmbed(center: LatLng, zoom: number): string {
+    const delta = 0.02 / (zoom / 14);
+    return `https://www.openstreetmap.org/export/embed.html?bbox=${center.lng - delta}%2C${center.lat - delta}%2C${center.lng + delta}%2C${center.lat + delta}&layer=mapnik&marker=${center.lat}%2C${center.lng}`;
+  }
 }
 
 export class MapboxProvider implements MapProvider {
@@ -113,9 +163,10 @@ export class GoogleMapsProvider implements MapProvider {
 }
 
 export function getMapProvider(): MapProvider {
-  const provider = process.env.NEXT_PUBLIC_MAP_PROVIDER || "mapbox";
+  const provider = process.env.NEXT_PUBLIC_MAP_PROVIDER || "tomtom";
   if (provider === "google") return new GoogleMapsProvider();
-  return new MapboxProvider();
+  if (provider === "mapbox") return new MapboxProvider();
+  return new TomTomProvider();
 }
 
 export function openExternalNavigation(

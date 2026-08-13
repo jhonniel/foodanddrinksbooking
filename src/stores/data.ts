@@ -197,7 +197,7 @@ export interface CreateRewardInput {
 export interface CreatePromotionInput {
   name: string;
   description?: string;
-  promoCode: string;
+  promoCode?: string;
   type: Promotion["type"];
   discountValue: number;
   minOrderAmount?: number;
@@ -205,6 +205,8 @@ export interface CreatePromotionInput {
   usageLimit?: number | null;
   endsAt?: string;
   perCustomerLimit?: number;
+  redemptionMode?: Promotion["redemption_mode"];
+  kind?: Promotion["kind"];
 }
 
 export interface CreateDriverInput {
@@ -664,7 +666,7 @@ export const useDataStore = create<DataState>()(
           id,
           name: input.name.trim(),
           description: input.description?.trim() || null,
-          promo_code: input.promoCode.trim().toUpperCase(),
+          promo_code: input.promoCode?.trim().toUpperCase() || null,
           type: input.type,
           discount_value: input.discountValue,
           min_order_amount: input.minOrderAmount ?? 0,
@@ -674,6 +676,8 @@ export const useDataStore = create<DataState>()(
           per_customer_limit: input.perCustomerLimit ?? 1,
           starts_at: now,
           ends_at: endsAt,
+          redemption_mode: input.redemptionMode ?? "CLAIM",
+          kind: input.kind ?? "VOUCHER",
           is_active: true,
           image_url: null,
           created_at: now,
@@ -855,6 +859,11 @@ export const useDataStore = create<DataState>()(
         );
         if (!state.deductedOrderIds) state.deductedOrderIds = [];
         if (!state.expenses) state.expenses = seedExpenses();
+        state.promotions = state.promotions.map((p) => ({
+          ...p,
+          redemption_mode: p.redemption_mode ?? ("CLAIM" as const),
+          kind: p.kind ?? ("VOUCHER" as const),
+        }));
         state.drivers = [];
         state.customers = [];
         state.setHydrated(true);

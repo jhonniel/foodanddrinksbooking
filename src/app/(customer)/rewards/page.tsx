@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { History, Sparkles, Ticket, Loader2, Copy } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { History, Sparkles, Ticket, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { PageTransition, Stagger, StaggerItem } from "@/components/motion";
 import {
@@ -12,8 +14,11 @@ import {
   getNextRewardProgress,
   canRedeem,
 } from "@/services/loyaltyService";
+import { validatePromoCode } from "@/services/productService";
 import { useAuthStore } from "@/stores/auth";
 import { useDataStore } from "@/stores/data";
+import { useCartStore } from "@/stores/cart";
+import { isClaimRedemption } from "@/lib/vouchers/redemptionMode";
 import {
   formatCurrency,
   formatDate,
@@ -46,10 +51,13 @@ function discountLabel(v: Promotion) {
 }
 
 export default function RewardsPage() {
+  const router = useRouter();
   const reduce = useReducedMotion();
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
   const storeRewards = useDataStore((s) => s.rewards);
+  const setPromo = useCartStore((s) => s.setPromo);
+  const subtotal = useCartStore((s) => s.subtotal());
 
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +70,8 @@ export default function RewardsPage() {
   const [claimedVouchers, setClaimedVouchers] = useState<VoucherClaim[]>([]);
   const [vouchersLoading, setVouchersLoading] = useState(true);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState("");
+  const [applyingCode, setApplyingCode] = useState(false);
 
   const refreshPoints = useCallback(async () => {
     if (!user?.id) {
@@ -171,9 +181,7 @@ export default function RewardsPage() {
         toast.error(data?.error || "Could not claim voucher.");
         return;
       }
-      toast.success(
-        `Claimed ${data?.voucher?.promo_code ?? voucher.promo_code}! Apply it in your cart.`
-      );
+      toast.success(`Claimed ${data?.voucher?.promo_code ?? voucher.promo_code}!`);
       await refreshVouchers();
     } catch {
       toast.error("Could not claim voucher.");
@@ -182,23 +190,64 @@ export default function RewardsPage() {
     }
   };
 
-  const applyClaimed = (promo: Promotion) => {
+  const useVoucher = async (promo: Promotion) => {
     const code = promo.promo_code;
     if (!code) return;
-    try {
-      void navigator.clipboard?.writeText(code);
-    } catch {
-      /* ignore */
+    const normalized = code.toUpperCase();
+    const result = await validatePromoCode(normalized, subtotal);
+    if (result.valid) {
+      setPromo(normalized, result.discount);
+      toast.success(`${normalized} is active — pick items from the menu.`);
+    } else if (result.error?.includes("Minimum order")) {
+      setPromo(normalized, 0);
+      toast.success(`${normalized} selected — add items to apply the discount.`);
+    } else {
+      toast.error(result.error ?? "Could not use voucher.");
+      return;
     }
-    toast.success(`Copied ${code}. Paste it in Cart → Promo code.`);
+    router.push("/menu");
   };
+
+  const handleApplyManualCode = async () => {
+    const code = manualCode.trim().toUpperCase();
+    if (!code) return;
+    setApplyingCode(true);
+    try {
+      const res = await fetch("/api/me/vouchers", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        voucher?: Promotion;
+      } | null;
+      if (!res.ok) {
+        toast.error(data?.error || "Could not redeem voucher.");
+        return;
+      }
+      setManualCode("");
+      toast.success(
+        `${data?.voucher?.name ?? "Voucher"} saved! Tap Use when you order.`
+      );
+      await refreshVouchers();
+    } catch {
+      toast.error("Could not redeem voucher.");
+    } finally {
+      setApplyingCode(false);
+    }
+  };
+
+  const claimableOnly = availableVouchers.filter(isClaimRedemption);
+  const myVouchers = claimedVouchers.filter((c) => c.promotion);
 
   return (
     <PageTransition className="mx-auto max-w-lg space-y-6 pb-4">
       <div>
         <h1 className="text-2xl font-bold text-navy">Rewards</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Earn points, claim promotion vouchers, and redeem exclusive perks.
+          Claim vouchers or redeem a code — saved vouchers appear below for use at checkout.
         </p>
       </div>
 
@@ -214,13 +263,42 @@ export default function RewardsPage() {
           <Ticket className="h-4 w-4 text-sky" />
           <h2 className="text-lg font-bold text-navy">Vouchers</h2>
         </div>
+
+        <div className="mb-3 rounded-2xl bg-white p-4 shadow-card">
+          <p className="mb-2 text-sm font-semibold text-navy">Redeem a code</p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter promo code"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && manualCode.trim() && !applyingCode) {
+                  void handleApplyManualCode();
+                }
+              }}
+              className="h-11 rounded-xl font-mono uppercase"
+            />
+            <Button
+              onClick={() => void handleApplyManualCode()}
+              disabled={applyingCode || !manualCode.trim()}
+              className="h-11 shrink-0 rounded-xl bg-green hover:bg-green/90"
+            >
+              {applyingCode ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Redeem"
+              )}
+            </Button>
+          </div>
+        </div>
+
         {vouchersLoading ? (
           <div className="flex justify-center py-8 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : (
           <div className="space-y-3">
-            {availableVouchers.length === 0 && claimedVouchers.length === 0 ? (
+            {claimableOnly.length === 0 && myVouchers.length === 0 ? (
               <div className="rounded-2xl bg-white px-4 py-8 text-center shadow-card">
                 <p className="text-sm text-muted-foreground">
                   No vouchers available to claim right now.
@@ -228,16 +306,16 @@ export default function RewardsPage() {
               </div>
             ) : null}
 
-            {availableVouchers.map((v) => (
+            {claimableOnly.map((v) => (
               <div
                 key={v.id}
                 className="flex items-center justify-between gap-3 rounded-2xl bg-white p-4 shadow-card"
               >
                 <div className="min-w-0">
                   <p className="font-semibold text-navy">{v.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {v.description || discountLabel(v)}
-                  </p>
+                  {v.description ? (
+                    <p className="text-sm text-muted-foreground">{v.description}</p>
+                  ) : null}
                   <p className="mt-1 text-xs font-medium text-green">
                     {discountLabel(v)}
                     {v.min_order_amount > 0
@@ -247,11 +325,6 @@ export default function RewardsPage() {
                       ? ` · expires ${formatDate(v.ends_at)}`
                       : " · never expires"}
                   </p>
-                  {v.usage_limit != null && (
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {Math.max(0, v.usage_limit - v.usage_count)} left
-                    </p>
-                  )}
                 </div>
                 <Button
                   disabled={claimingId === v.id}
@@ -267,7 +340,7 @@ export default function RewardsPage() {
               </div>
             ))}
 
-            {claimedVouchers.map((c) => {
+            {myVouchers.map((c) => {
               const v = c.promotion;
               if (!v) return null;
               return (
@@ -281,7 +354,7 @@ export default function RewardsPage() {
                       {v.promo_code}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Claimed
+                      Saved to your vouchers
                       {v.ends_at
                         ? ` · expires ${formatDate(v.ends_at)}`
                         : " · never expires"}
@@ -290,10 +363,9 @@ export default function RewardsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="shrink-0 rounded-xl"
-                    onClick={() => applyClaimed(v)}
+                    className="shrink-0 rounded-xl border-green text-green hover:bg-green/5"
+                    onClick={() => void useVoucher(v)}
                   >
-                    <Copy className="mr-1.5 h-3.5 w-3.5" />
                     Use
                   </Button>
                 </div>

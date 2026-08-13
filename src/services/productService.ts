@@ -1,6 +1,7 @@
 import { useDataStore } from "@/stores/data";
 import { isProductOrderable } from "@/lib/inventory/availability";
 import type { Category, Product, ProductAddon, Promotion } from "@/types";
+import { isPromotionKind } from "@/lib/vouchers/promoKind";
 
 function getState() {
   return useDataStore.getState();
@@ -102,7 +103,9 @@ export async function getAddons(): Promise<ProductAddon[]> {
 }
 
 export async function getPromotions(): Promise<Promotion[]> {
-  return getState().promotions.filter((p) => p.is_active);
+  return getState().promotions.filter(
+    (p) => p.is_active && isPromotionKind(p)
+  );
 }
 
 export async function validatePromoCode(

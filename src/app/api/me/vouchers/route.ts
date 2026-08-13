@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from "@/lib/auth/config";
 import {
   claimVoucherForCustomer,
   listClaimableVouchersForCustomer,
+  redeemVoucherByCodeForCustomer,
 } from "@/lib/supabase/vouchers";
 
 export async function GET(request: NextRequest) {
@@ -25,9 +26,17 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ ...data, configured: true });
 }
 
-const claimSchema = z.object({
-  promotionId: z.string().uuid(),
-});
+const claimSchema = z
+  .object({
+    promotionId: z.string().uuid().optional(),
+    code: z.string().trim().min(3).max(32).optional(),
+  })
+  .refine((data) => Boolean(data.promotionId || data.code), {
+    message: "Provide a voucher or promo code.",
+  })
+  .refine((data) => !(data.promotionId && data.code), {
+    message: "Provide either a voucher or a promo code, not both.",
+  });
 
 export async function POST(request: NextRequest) {
   const session = await getSessionProfileFromRequest(request);
@@ -48,10 +57,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid voucher." }, { status: 400 });
   }
 
-  const result = await claimVoucherForCustomer(
-    session.id,
-    parsed.data.promotionId
-  );
+  const result = parsed.data.code
+    ? await redeemVoucherByCodeForCustomer(session.id, parsed.data.code)
+    : await claimVoucherForCustomer(session.id, parsed.data.promotionId!);
 
   if ("error" in result) {
     return NextResponse.json(
