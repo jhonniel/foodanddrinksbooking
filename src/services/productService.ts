@@ -114,24 +114,31 @@ export async function validatePromoCode(
   promotion?: Promotion;
   error?: string;
 }> {
-  const promo = getState().promotions.find(
-    (p) => p.promo_code?.toUpperCase() === code.toUpperCase() && p.is_active
-  );
-  if (!promo) return { valid: false, discount: 0, error: "Invalid promo code." };
-  // Minimums & % discounts use item subtotal only — delivery fee never counts.
-  if (subtotal < promo.min_order_amount) {
+  try {
+    const res = await fetch("/api/promotions/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ code, subtotal }),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.discount != null) {
+      return {
+        valid: true,
+        discount: Number(data.discount),
+        promotion: data.promotion as Promotion | undefined,
+      };
+    }
     return {
       valid: false,
       discount: 0,
-      error: `Minimum order of ₱${promo.min_order_amount} required (items only; delivery fee does not count).`,
+      error: String(data?.error ?? "Invalid voucher code."),
+    };
+  } catch {
+    return {
+      valid: false,
+      discount: 0,
+      error: "Could not validate voucher. Try again.",
     };
   }
-  let discount = 0;
-  if (promo.type === "PERCENTAGE") {
-    discount = (subtotal * promo.discount_value) / 100;
-    if (promo.max_discount) discount = Math.min(discount, promo.max_discount);
-  } else if (promo.type === "FIXED") {
-    discount = promo.discount_value;
-  }
-  return { valid: true, discount, promotion: promo };
 }

@@ -2,9 +2,20 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, ChevronUp, GripVertical, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
+import {
+  syncCategory,
+  uploadCategoryImage,
+} from "@/services/catalogService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,18 +26,39 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import type { Category } from "@/types";
+
+function slugify(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    id
+  );
+}
 
 export default function AdminCategoriesPage() {
   const categories = useDataStore((s) => s.categories);
+  const products = useDataStore((s) => s.products);
   const addCategory = useDataStore((s) => s.addCategory);
+  const updateCategory = useDataStore((s) => s.updateCategory);
+  const deleteCategory = useDataStore((s) => s.deleteCategory);
   const toggleCategoryActive = useDataStore((s) => s.toggleCategoryActive);
   const reorderCategories = useDataStore((s) => s.reorderCategories);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Category | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const sorted = useMemo(
     () => [...categories].sort((a, b) => a.sort_order - b.sort_order),
@@ -34,8 +66,11 @@ export default function AdminCategoriesPage() {
   );
 
   const resetForm = () => {
+    setEditing(null);
     setName("");
     setDescription("");
+    setImageUrl("");
+    setImageFile(null);
   };
 
   const handleOpenChange = (open: boolean) => {
@@ -43,21 +78,110 @@ export default function AdminCategoriesPage() {
     if (!open) resetForm();
   };
 
-  const handleAddCategory = () => {
+  const openCreate = () => {
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const openEdit = (category: Category) => {
+    setEditing(category);
+    setName(category.name);
+    setDescription(category.description ?? "");
+    setImageUrl(category.image_url ?? "");
+    setImageFile(null);
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       toast.error("Category name is required.");
       return;
     }
 
-    addCategory({
-      name: trimmedName,
-      description: description.trim() || undefined,
-    });
+    setSaving(true);
+    try {
+      let nextImageUrl = imageUrl.trim() || undefined;
 
-    toast.success(`"${trimmedName}" category added.`);
-    setDialogOpen(false);
-    resetForm();
+      if (editing) {
+        if (imageFile) {
+          const uploaded = await uploadCategoryImage(imageFile, editing.id);
+          if ("error" in uploaded) {
+            toast.error(uploaded.error);
+            return;
+          }
+          nextImageUrl = uploaded.publicUrl;
+        }
+
+        updateCategory(editing.id, {
+          name: trimmedName,
+          slug: slugify(trimmedName),
+          description: description.trim() || null,
+          ...(nextImageUrl ? { image_url: nextImageUrl } : {}),
+        });
+
+        const latest = useDataStore
+          .getState()
+          .categories.find((c) => c.id === editing.id);
+        if (latest && isUuid(latest.id)) {
+          const sync = await syncCategory(latest);
+          if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
+        }
+
+        toast.success(`"${trimmedName}" updated.`);
+      } else {
+        const created = addCategory({
+          name: trimmedName,
+          description: description.trim() || undefined,
+          imageUrl: nextImageUrl,
+        });
+
+        if (imageFile) {
+          const uploaded = await uploadCategoryImage(imageFile, created.id);
+          if ("error" in uploaded) {
+            toast.error(uploaded.error);
+          } else {
+            updateCategory(created.id, { image_url: uploaded.publicUrl });
+          }
+        }
+
+        const latest = useDataStore
+          .getState()
+          .categories.find((c) => c.id === created.id);
+        if (latest && isUuid(latest.id)) {
+          const sync = await syncCategory(latest);
+          if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
+        }
+
+        toast.success(`"${trimmedName}" category added.`);
+      }
+
+      setDialogOpen(false);
+      resetForm();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = (category: Category) => {
+    const linked = products.filter((p) => p.category_id === category.id);
+    if (linked.length > 0) {
+      toast.error(
+        `Cannot delete “${category.name}” — ${linked.length} product${linked.length === 1 ? "" : "s"} still use it. Move or delete those products first.`
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Delete “${category.name}”? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    deleteCategory(category.id);
+    toast.success(`"${category.name}" deleted.`);
   };
 
   const handleToggleActive = (id: string, categoryName: string) => {
@@ -83,25 +207,33 @@ export default function AdminCategoriesPage() {
     toast.success("Category order updated.");
   };
 
+  const previewUrl = imageFile
+    ? URL.createObjectURL(imageFile)
+    : imageUrl.trim() || null;
+
   return (
     <div className="p-4 lg:p-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-navy">Categories</h1>
           <p className="text-sm text-muted-foreground">
-            Enable categories and adjust display order
+            Add, edit, delete, enable categories, and adjust display order
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
-          <DialogTrigger
+          <Button
+            type="button"
+            onClick={openCreate}
             className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-green px-2.5 text-sm font-medium text-white hover:bg-green/90"
           >
             <Plus className="h-4 w-4" />
             Add Category
-          </DialogTrigger>
+          </Button>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Category</DialogTitle>
+              <DialogTitle>
+                {editing ? "Edit Category" : "Add Category"}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div>
@@ -123,11 +255,45 @@ export default function AdminCategoriesPage() {
                   rows={2}
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Category image</Label>
+                {previewUrl && (
+                  <div className="relative aspect-video overflow-hidden rounded-xl bg-light-blue">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl}
+                      alt="Preview"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                )}
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setImageFile(file);
+                  }}
+                />
+                <Input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Or paste image URL"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Uploads save to S3 (`islandcoolersimg`).
+                </p>
+              </div>
               <Button
                 className="w-full bg-green hover:bg-green/90"
-                onClick={handleAddCategory}
+                onClick={() => void handleSave()}
+                disabled={saving}
               >
-                Save Category
+                {saving
+                  ? "Saving…"
+                  : editing
+                    ? "Save Changes"
+                    : "Save Category"}
               </Button>
             </div>
           </DialogContent>
@@ -141,7 +307,7 @@ export default function AdminCategoriesPage() {
             className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-3 shadow-card sm:gap-4 sm:p-4"
           >
             <GripVertical className="hidden h-5 w-5 shrink-0 text-muted-foreground/50 sm:block" />
-            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl sm:h-14 sm:w-14">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-14 sm:w-14">
               {category.image_url && (
                 <Image
                   src={category.image_url}
@@ -166,7 +332,23 @@ export default function AdminCategoriesPage() {
               total={sorted.length}
               onMove={moveCategory}
             />
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-1 sm:gap-2">
+              <button
+                type="button"
+                aria-label={`Edit ${category.name}`}
+                onClick={() => openEdit(category)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-navy/70 hover:bg-muted hover:text-navy"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete ${category.name}`}
+                onClick={() => handleDelete(category)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-red-500/80 hover:bg-red-50 hover:text-red-600"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
               <Label htmlFor={`cat-${category.id}`} className="text-sm">
                 {category.is_active ? "Enabled" : "Disabled"}
               </Label>

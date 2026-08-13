@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Product } from "@/types";
+import type { Category, Product } from "@/types";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
 import {
@@ -45,6 +45,47 @@ export async function fetchCatalogFromSupabase() {
   const inventory = ((invRes.data ?? []) as DbInventory[]).map(mapInventory);
 
   return { categories, products, inventory };
+}
+
+export async function upsertCategoryInSupabase(
+  category: Category
+): Promise<{ ok: true } | { error: string }> {
+  if (!isSupabaseConfigured()) return { ok: true };
+  const client = await createServerClient();
+  if (!client) return { error: "Supabase is not configured." };
+
+  const { error } = await client.from("categories").upsert({
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    description: category.description,
+    image_url: category.image_url,
+    sort_order: category.sort_order,
+    is_active: category.is_active,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+export async function updateCategoryImageInSupabase(
+  categoryId: string,
+  imageUrl: string
+): Promise<{ ok: true } | { error: string }> {
+  if (!isSupabaseConfigured()) {
+    return { error: "Supabase is not configured." };
+  }
+  const client = await createServerClient();
+  if (!client) return { error: "Supabase is not configured." };
+
+  const { error } = await client
+    .from("categories")
+    .update({ image_url: imageUrl, updated_at: new Date().toISOString() })
+    .eq("id", categoryId);
+
+  if (error) return { error: error.message };
+  return { ok: true };
 }
 
 export async function upsertProductInSupabase(

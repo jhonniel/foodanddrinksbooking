@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Gift, Plus } from "lucide-react";
+import { Gift, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
 import { formatPoints } from "@/lib/utils/format";
@@ -16,21 +16,25 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
+import type { Reward } from "@/types";
 
 export default function AdminRewardsPage() {
   const rewards = useDataStore((s) => s.rewards);
   const addReward = useDataStore((s) => s.addReward);
+  const updateReward = useDataStore((s) => s.updateReward);
+  const deleteReward = useDataStore((s) => s.deleteReward);
   const toggleRewardActive = useDataStore((s) => s.toggleRewardActive);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Reward | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [pointsRequired, setPointsRequired] = useState("");
   const [discountValue, setDiscountValue] = useState("");
 
   const resetForm = () => {
+    setEditing(null);
     setName("");
     setDescription("");
     setPointsRequired("");
@@ -42,7 +46,23 @@ export default function AdminRewardsPage() {
     if (!open) resetForm();
   };
 
-  const handleAddReward = () => {
+  const openCreate = () => {
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const openEdit = (reward: Reward) => {
+    setEditing(reward);
+    setName(reward.name);
+    setDescription(reward.description ?? "");
+    setPointsRequired(String(reward.points_required));
+    setDiscountValue(
+      reward.discount_value != null ? String(reward.discount_value) : ""
+    );
+    setDialogOpen(true);
+  };
+
+  const handleSave = () => {
     const trimmedName = name.trim();
     const points = parseInt(pointsRequired, 10);
     const discount = discountValue ? parseFloat(discountValue) : undefined;
@@ -60,16 +80,38 @@ export default function AdminRewardsPage() {
       return;
     }
 
-    addReward({
-      name: trimmedName,
-      description: description.trim() || undefined,
-      pointsRequired: points,
-      discountValue: discount,
-    });
+    if (editing) {
+      updateReward(editing.id, {
+        name: trimmedName,
+        description: description.trim() || null,
+        points_required: points,
+        discount_value: discount ?? null,
+      });
+      toast.success(`"${trimmedName}" updated.`);
+    } else {
+      addReward({
+        name: trimmedName,
+        description: description.trim() || undefined,
+        pointsRequired: points,
+        discountValue: discount,
+      });
+      toast.success(`"${trimmedName}" reward created.`);
+    }
 
-    toast.success(`"${trimmedName}" reward created.`);
     setDialogOpen(false);
     resetForm();
+  };
+
+  const handleDelete = (reward: Reward) => {
+    if (
+      !window.confirm(
+        `Delete “${reward.name}”? Customers will no longer see this reward.`
+      )
+    ) {
+      return;
+    }
+    deleteReward(reward.id);
+    toast.success(`"${reward.name}" deleted.`);
   };
 
   const handleToggleActive = (id: string, rewardName: string) => {
@@ -91,15 +133,19 @@ export default function AdminRewardsPage() {
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
-          <DialogTrigger
+          <Button
+            type="button"
+            onClick={openCreate}
             className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-green px-2.5 text-sm font-medium text-white hover:bg-green/90"
           >
             <Plus className="h-4 w-4" />
             Add Reward
-          </DialogTrigger>
+          </Button>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Reward</DialogTitle>
+              <DialogTitle>
+                {editing ? "Edit Reward" : "Add Reward"}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div>
@@ -146,9 +192,9 @@ export default function AdminRewardsPage() {
               </div>
               <Button
                 className="w-full bg-green hover:bg-green/90"
-                onClick={handleAddReward}
+                onClick={handleSave}
               >
-                Save Reward
+                {editing ? "Save Changes" : "Save Reward"}
               </Button>
             </div>
           </DialogContent>
@@ -165,9 +211,27 @@ export default function AdminRewardsPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-light-blue">
                 <Gift className="h-5 w-5 text-sky" />
               </div>
-              <Badge variant={reward.is_active ? "default" : "secondary"}>
-                {reward.is_active ? "Active" : "Inactive"}
-              </Badge>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-label={`Edit ${reward.name}`}
+                  onClick={() => openEdit(reward)}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-navy/70 hover:bg-muted hover:text-navy"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${reward.name}`}
+                  onClick={() => handleDelete(reward)}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-red-500/80 hover:bg-red-50 hover:text-red-600"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+                <Badge variant={reward.is_active ? "default" : "secondary"}>
+                  {reward.is_active ? "Active" : "Inactive"}
+                </Badge>
+              </div>
             </div>
             <h3 className="mt-3 text-lg font-semibold text-navy">
               {reward.name}

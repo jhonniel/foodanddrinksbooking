@@ -353,8 +353,8 @@ export const REWARDS: Reward[] = [
 ];
 
 export const PROMOTIONS: Promotion[] = [
-  { id: "promo-welcome", name: "Welcome Offer", description: "10% off your first order", promo_code: "WELCOME10", type: "PERCENTAGE", discount_value: 10, min_order_amount: 100, max_discount: 50, usage_limit: null, usage_count: 0, starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 90 * 86400000).toISOString(), is_active: true, image_url: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: "promo-summer", name: "Summer Cool", description: "₱30 off orders over ₱200", promo_code: "SUMMER30", type: "FIXED", discount_value: 30, min_order_amount: 200, max_discount: null, usage_limit: null, usage_count: 0, starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 60 * 86400000).toISOString(), is_active: true, image_url: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "promo-welcome", name: "Welcome Offer", description: "10% off your first order", promo_code: "WELCOME10", type: "PERCENTAGE", discount_value: 10, min_order_amount: 100, max_discount: 50, usage_limit: null, usage_count: 0, per_customer_limit: 1, starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 90 * 86400000).toISOString(), is_active: true, image_url: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "promo-summer", name: "Summer Cool", description: "₱30 off orders over ₱200", promo_code: "SUMMER30", type: "FIXED", discount_value: 30, min_order_amount: 200, max_discount: null, usage_limit: null, usage_count: 0, per_customer_limit: 1, starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 60 * 86400000).toISOString(), is_active: true, image_url: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
 ];
 
 export const INVENTORY: InventoryItem[] = [

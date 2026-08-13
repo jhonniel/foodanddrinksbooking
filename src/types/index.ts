@@ -398,12 +398,23 @@ export interface Promotion {
   max_discount: number | null;
   usage_limit: number | null;
   usage_count: number;
+  per_customer_limit: number | null;
   starts_at: string;
-  ends_at: string;
+  /** null = never expires */
+  ends_at: string | null;
   is_active: boolean;
   image_url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Customer claim of an admin promotion voucher. */
+export interface VoucherClaim {
+  id: string;
+  promotion_id: string;
+  customer_id: string;
+  claimed_at: string;
+  promotion?: Promotion;
 }
 
 export interface Notification {

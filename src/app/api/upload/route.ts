@@ -5,7 +5,10 @@ import {
 import { jsonError, jsonOk } from "@/lib/auth/http";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { updateAccountProfile } from "@/lib/auth/accounts";
-import { updateProductImageInSupabase } from "@/lib/supabase/catalog";
+import {
+  updateCategoryImageInSupabase,
+  updateProductImageInSupabase,
+} from "@/lib/supabase/catalog";
 import { createServerClient } from "@/lib/supabase/server";
 import {
   buildImageObjectKey,
@@ -60,6 +63,7 @@ export async function POST(request: Request) {
   const bucketHint = String(form.get("bucket") ?? "islandcoolersimg");
   const folderRaw = String(form.get("folder") ?? profile.id);
   const productId = form.get("productId");
+  const categoryId = form.get("categoryId");
   const kind = kindFromBucketHint(bucketHint);
 
   if (!(file instanceof File)) {
@@ -112,6 +116,14 @@ export async function POST(request: Request) {
       /^[0-9a-f-]{36}$/i.test(productId)
     ) {
       await updateProductImageInSupabase(productId, publicUrl);
+    }
+
+    if (
+      kind === "products" &&
+      typeof categoryId === "string" &&
+      /^[0-9a-f-]{36}$/i.test(categoryId)
+    ) {
+      await updateCategoryImageInSupabase(categoryId, publicUrl);
     }
 
     if (kind === "avatars") {

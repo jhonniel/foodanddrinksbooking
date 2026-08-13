@@ -202,6 +202,9 @@ export interface CreatePromotionInput {
   discountValue: number;
   minOrderAmount?: number;
   endsInDays?: number;
+  usageLimit?: number | null;
+  endsAt?: string;
+  perCustomerLimit?: number;
 }
 
 export interface CreateDriverInput {
@@ -264,6 +267,7 @@ interface DataState {
 
   addCategory: (input: CreateCategoryInput) => Category;
   updateCategory: (id: string, updates: Partial<Category>) => void;
+  deleteCategory: (id: string) => void;
   reorderCategories: (orderedIds: string[]) => void;
   toggleCategoryActive: (id: string) => void;
 
@@ -277,10 +281,12 @@ interface DataState {
 
   addReward: (input: CreateRewardInput) => Reward;
   updateReward: (id: string, updates: Partial<Reward>) => void;
+  deleteReward: (id: string) => void;
   toggleRewardActive: (id: string) => void;
 
   addPromotion: (input: CreatePromotionInput) => Promotion;
   updatePromotion: (id: string, updates: Partial<Promotion>) => void;
+  deletePromotion: (id: string) => void;
   togglePromotionActive: (id: string) => void;
 
   addDriver: (input: CreateDriverInput) => Driver;
@@ -462,7 +468,10 @@ export const useDataStore = create<DataState>()(
         })),
 
       addCategory: (input) => {
-        const id = `cat-${Date.now()}`;
+        const id =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `cat-${Date.now()}`;
         const now = new Date().toISOString();
         const category: Category = {
           id,
@@ -488,6 +497,11 @@ export const useDataStore = create<DataState>()(
               ? { ...c, ...updates, updated_at: new Date().toISOString() }
               : c
           ),
+        })),
+
+      deleteCategory: (id) =>
+        set((s) => ({
+          categories: s.categories.filter((c) => c.id !== id),
         })),
 
       reorderCategories: (orderedIds) =>
@@ -616,6 +630,11 @@ export const useDataStore = create<DataState>()(
           ),
         })),
 
+      deleteReward: (id) =>
+        set((s) => ({
+          rewards: s.rewards.filter((r) => r.id !== id),
+        })),
+
       toggleRewardActive: (id) =>
         set((s) => ({
           rewards: s.rewards.map((r) =>
@@ -632,8 +651,15 @@ export const useDataStore = create<DataState>()(
       addPromotion: (input) => {
         const id = `promo-${Date.now()}`;
         const now = new Date().toISOString();
-        const ends = new Date();
-        ends.setDate(ends.getDate() + (input.endsInDays ?? 30));
+        const endsAt = input.endsAt
+          ? new Date(input.endsAt).toISOString()
+          : input.endsInDays != null
+            ? (() => {
+                const d = new Date();
+                d.setDate(d.getDate() + input.endsInDays!);
+                return d.toISOString();
+              })()
+            : null;
         const promotion: Promotion = {
           id,
           name: input.name.trim(),
@@ -643,10 +669,11 @@ export const useDataStore = create<DataState>()(
           discount_value: input.discountValue,
           min_order_amount: input.minOrderAmount ?? 0,
           max_discount: null,
-          usage_limit: null,
+          usage_limit: input.usageLimit ?? null,
           usage_count: 0,
+          per_customer_limit: input.perCustomerLimit ?? 1,
           starts_at: now,
-          ends_at: ends.toISOString(),
+          ends_at: endsAt,
           is_active: true,
           image_url: null,
           created_at: now,
@@ -663,6 +690,11 @@ export const useDataStore = create<DataState>()(
               ? { ...p, ...updates, updated_at: new Date().toISOString() }
               : p
           ),
+        })),
+
+      deletePromotion: (id) =>
+        set((s) => ({
+          promotions: s.promotions.filter((p) => p.id !== id),
         })),
 
       togglePromotionActive: (id) =>

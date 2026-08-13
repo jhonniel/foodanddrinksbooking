@@ -534,7 +534,7 @@ CREATE TABLE promotions (
   usage_count INTEGER NOT NULL DEFAULT 0,
   per_customer_limit INTEGER DEFAULT 1,
   starts_at TIMESTAMPTZ NOT NULL,
-  ends_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ,
   is_active BOOLEAN NOT NULL DEFAULT true,
   image_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -549,6 +549,20 @@ CREATE TABLE promotion_usages (
   discount_applied DECIMAL(10, 2) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE voucher_claims (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+  customer_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (promotion_id, customer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_voucher_claims_customer
+  ON voucher_claims (customer_id);
+
+CREATE INDEX IF NOT EXISTS idx_voucher_claims_promotion
+  ON voucher_claims (promotion_id);
 
 -- ============================================================
 -- ENGAGEMENT

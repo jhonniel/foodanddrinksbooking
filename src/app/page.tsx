@@ -354,12 +354,6 @@ export default function LandingPage() {
       <footer className="border-t bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 sm:flex-row sm:items-center sm:justify-between lg:px-6">
           <Logo size="sm" />
-          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-            <Link href="/home" className="hover:text-navy">App</Link>
-            <Link href="/admin" className="hover:text-navy">Admin</Link>
-            <Link href="/driver" className="hover:text-navy">Driver</Link>
-            <Link href="/menu" className="hover:text-navy">Menu</Link>
-          </div>
           <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Island Coolers</p>
         </div>
       </footer>

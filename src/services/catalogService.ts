@@ -24,6 +24,36 @@ export async function loadCatalog(): Promise<CatalogPayload> {
   return (await res.json()) as CatalogPayload;
 }
 
+export async function syncCategory(category: Category): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  if (!isUuid(category.id)) {
+    return { ok: true };
+  }
+
+  const res = await fetch("/api/catalog/categories", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      category: {
+        ...category,
+        description: category.description ?? null,
+        image_url: category.image_url ?? null,
+      },
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    ok?: boolean;
+  };
+  if (!res.ok) {
+    return { ok: false, error: json.error ?? "Could not sync category." };
+  }
+  return { ok: true };
+}
+
 export async function syncProduct(product: Product): Promise<{
   ok: boolean;
   error?: string;
@@ -82,6 +112,32 @@ export async function uploadProductImage(
   form.append("bucket", "islandcoolersimg");
   form.append("folder", folder);
   form.append("productId", folder);
+
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    publicUrl?: string;
+    path?: string;
+  };
+  if (!res.ok || !json.publicUrl || !json.path) {
+    return { error: json.error ?? "Upload failed." };
+  }
+  return { publicUrl: json.publicUrl, path: json.path };
+}
+
+export async function uploadCategoryImage(
+  file: File,
+  categoryId: string
+): Promise<{ publicUrl: string; path: string } | { error: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("bucket", "islandcoolersimg");
+  form.append("folder", categoryId);
+  form.append("categoryId", categoryId);
 
   const res = await fetch("/api/upload", {
     method: "POST",
