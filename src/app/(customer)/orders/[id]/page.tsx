@@ -17,7 +17,13 @@ import { OrderTrackingStepper } from "@/components/customer/OrderTrackingStepper
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useCartStore } from "@/stores/cart";
+import { useDataStore } from "@/stores/data";
 import { MapEmbed } from "@/components/shared/MapEmbed";
+import {
+  canReorderItems,
+  getUnavailableReorderItems,
+  orderItemToCartItem,
+} from "@/lib/orders/reorder";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { customerCanCancelOrder } from "@/lib/constants";
 
@@ -31,6 +37,8 @@ export default function OrderDetailPage() {
   const setOrders = useAppStore((s) => s.setOrders);
   const user = useAuthStore((s) => s.user);
   const addItem = useCartStore((s) => s.addItem);
+  const products = useDataStore((s) => s.products);
+  const inventory = useDataStore((s) => s.inventory);
   const [cancelling, setCancelling] = useState(false);
 
   const order = orders.find((o) => o.id === orderId);
@@ -52,29 +60,33 @@ export default function OrderDetailPage() {
 
   const rider = delivery?.driver ?? null;
 
+  const reorderAvailable = useMemo(
+    () =>
+      order?.items?.length
+        ? canReorderItems(order.items, products, inventory)
+        : false,
+    [order?.items, products, inventory]
+  );
+
   const handleReorder = () => {
     if (!order?.items?.length) return;
+
+    const unavailable = getUnavailableReorderItems(
+      order.items,
+      products,
+      inventory
+    );
+    if (unavailable.length > 0) {
+      toast.error(
+        unavailable.length === 1
+          ? `${unavailable[0]} is no longer available and cannot be reordered.`
+          : `Some items are no longer available: ${unavailable.join(", ")}.`
+      );
+      return;
+    }
+
     order.items.forEach((item) => {
-      addItem({
-        productId: item.product_id,
-        productName: item.product_name,
-        productImage: item.product_image_url,
-        basePrice: item.unit_price,
-        quantity: item.quantity,
-        options: (item.options ?? []).map((o) => ({
-          optionId: o.id,
-          optionName: o.option_name,
-          valueId: o.id,
-          valueName: o.value_name,
-          priceAdjustment: o.price_adjustment,
-        })),
-        addons: (item.addons ?? []).map((a) => ({
-          addonId: a.id,
-          name: a.addon_name,
-          price: a.price,
-          quantity: a.quantity,
-        })),
-      });
+      addItem(orderItemToCartItem(item));
     });
     toast.success("Items added to cart");
     router.push("/cart");
@@ -339,14 +351,22 @@ export default function OrderDetailPage() {
 
       {(user?.role === "CUSTOMER" || !user) &&
         order.status === "DELIVERED" && (
-          <Button
-            onClick={handleReorder}
-            variant="outline"
-            className="h-12 w-full rounded-xl border-green text-green hover:bg-green/5"
-          >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            Reorder
-          </Button>
+          <>
+            <Button
+              onClick={handleReorder}
+              variant="outline"
+              disabled={!reorderAvailable}
+              className="h-12 w-full rounded-xl border-green text-green hover:bg-green/5 disabled:opacity-50"
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reorder
+            </Button>
+            {!reorderAvailable && (
+              <p className="text-center text-xs text-muted-foreground">
+                One or more items from this order are no longer available.
+              </p>
+            )}
+          </>
         )}
     </div>
   );
