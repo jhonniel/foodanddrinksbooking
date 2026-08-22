@@ -1,4 +1,4 @@
-/** Remove legacy Zustand persisted slices — all app data now loads from Supabase. */
+/** Remove legacy Zustand persisted catalog slices — cart uses island-coolers-cart-v4. */
 export function clearLegacyDataStorage() {
   if (typeof window === "undefined") return;
   const keys = [

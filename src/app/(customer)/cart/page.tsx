@@ -32,6 +32,7 @@ export default function CartPage() {
   const setPromo = useCartStore((s) => s.setPromo);
   const products = useDataStore((s) => s.products);
   const inventory = useDataStore((s) => s.inventory);
+  const catalogHydrated = useDataStore((s) => s.hydrated);
   const {
     items,
     itemCount,
@@ -72,8 +73,9 @@ export default function CartPage() {
   };
 
   useEffect(() => {
+    if (!catalogHydrated) return;
     normalizeCart();
-  }, [normalizeCart, products, inventory]);
+  }, [normalizeCart, products, inventory, catalogHydrated]);
 
   const handleIncreaseQuantity = (item: (typeof items)[number]) => {
     updateQuantity(item.id, item.quantity + 1);

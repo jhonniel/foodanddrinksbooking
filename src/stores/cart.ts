@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { toast } from "sonner";
 import type { CartItem, CartItemAddon, CartItemOption } from "@/types";
 import { DELIVERY_CONFIG } from "@/data/demo";
@@ -86,19 +87,27 @@ export function formatCartOptions(
 }
 
 function getCatalogState() {
-  const { products, inventory } = useDataStore.getState();
-  return { products, inventory };
+  const { products, inventory, hydrated } = useDataStore.getState();
+  return { products, inventory, hydrated };
 }
 
-function applyStockRules(items: CartItem[]): CartItem[] {
-  const { products, inventory } = getCatalogState();
-  return clampCartToStockLimits(consolidateCartItems(items), products, inventory);
+function applyStockRules(items: CartItem[], strict = true): CartItem[] {
+  const { products, inventory, hydrated } = getCatalogState();
+  const consolidated = consolidateCartItems(items);
+  if (!hydrated) return consolidated;
+  return clampCartToStockLimits(consolidated, products, inventory, {
+    keepUnknownProducts: !strict,
+  });
 }
+
+export const CART_STORAGE_KEY = "island-coolers-cart-v4";
 
 /** Default: no pin until user confirms Samal location */
 const DEFAULT_DELIVERY: LatLng | null = null;
 
-export const useCartStore = create<CartState>()((set, get) => ({
+export const useCartStore = create<CartState>()(
+  persist(
+    (set, get) => ({
       items: [],
       promoCode: null,
       promoDiscount: 0,
@@ -214,10 +223,13 @@ export const useCartStore = create<CartState>()((set, get) => ({
         }
       },
 
-      normalizeCart: () =>
+      normalizeCart: () => {
+        const { hydrated } = getCatalogState();
+        if (!hydrated) return;
         set((s) => ({
-          items: applyStockRules(s.items),
-        })),
+          items: applyStockRules(s.items, true),
+        }));
+      },
 
       clearCart: () =>
         set({
@@ -284,6 +296,29 @@ export const useCartStore = create<CartState>()((set, get) => ({
           pointsDiscount,
         });
       },
-    }));
+    }),
+    {
+      name: CART_STORAGE_KEY,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        items: state.items,
+        promoCode: state.promoCode,
+        promoDiscount: state.promoDiscount,
+        pointsToUse: state.pointsToUse,
+        pointsDiscount: state.pointsDiscount,
+        orderType: state.orderType,
+        deliveryLocation: state.deliveryLocation,
+        deliveryAddressLabel: state.deliveryAddressLabel,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const { hydrated } = useDataStore.getState();
+        if (hydrated) {
+          queueMicrotask(() => useCartStore.getState().normalizeCart());
+        }
+      },
+    }
+  )
+);
 
 export { DELIVERY_CONFIG };

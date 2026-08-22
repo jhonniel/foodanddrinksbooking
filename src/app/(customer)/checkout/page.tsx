@@ -64,6 +64,7 @@ export default function CheckoutPage() {
   const normalizeCart = useCartStore((s) => s.normalizeCart);
   const products = useDataStore((s) => s.products);
   const inventory = useDataStore((s) => s.inventory);
+  const catalogHydrated = useDataStore((s) => s.hydrated);
   const { subtotal, deliveryQuote, deliveryFee, total } = useCartTotals();
 
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -115,8 +116,9 @@ export default function CheckoutPage() {
   }, [selectedAddress, addresses, setDeliveryLocation]);
 
   useEffect(() => {
+    if (!catalogHydrated) return;
     normalizeCart();
-  }, [normalizeCart, products, inventory]);
+  }, [normalizeCart, products, inventory, catalogHydrated]);
 
   if (items.length === 0) {
     return (

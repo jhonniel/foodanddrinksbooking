@@ -149,14 +149,20 @@ export function validateCartStock(
 export function clampCartToStockLimits(
   items: CartItem[],
   products: Product[],
-  inventory: InventoryItem[]
+  inventory: InventoryItem[],
+  options?: { keepUnknownProducts?: boolean }
 ): CartItem[] {
   const usedByProduct = new Map<string, number>();
   const result: CartItem[] = [];
 
   for (const item of items) {
     const product = resolveProductForStock(item.productId, products);
-    if (!product) continue;
+    if (!product) {
+      if (options?.keepUnknownProducts) {
+        result.push(item);
+      }
+      continue;
+    }
 
     const canMake = getProductCanMake(product, inventory);
     const used = usedByProduct.get(item.productId) ?? 0;

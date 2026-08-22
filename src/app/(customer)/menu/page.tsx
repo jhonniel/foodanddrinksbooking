@@ -35,6 +35,7 @@ function MenuContent() {
   const storeProducts = useDataStore((s) => s.products);
   const storeCategories = useDataStore((s) => s.categories);
   const inventory = useDataStore((s) => s.inventory);
+  const catalogHydrated = useDataStore((s) => s.hydrated);
 
   const categoryParam = searchParams.get("category") ?? "";
   const sortParam = (searchParams.get("sort") as
@@ -96,8 +97,9 @@ function MenuContent() {
   }, [promoCode, cartSubtotal, promoDiscount, setPromo]);
 
   useEffect(() => {
+    if (!catalogHydrated) return;
     normalizeCart();
-  }, [normalizeCart, storeProducts, inventory]);
+  }, [normalizeCart, storeProducts, inventory, catalogHydrated]);
 
   const handleAdd = (product: Product) => {
     if (product.options?.length) {
