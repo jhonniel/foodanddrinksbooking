@@ -2,12 +2,12 @@ import { create } from "zustand";
 import type { Order, OrderStatus, DeliveryOrder, Notification } from "@/types";
 import { STORE_LOCATION } from "@/data/demo";
 import { useDataStore } from "@/stores/data";
-import {
-  createNotification,
-  NotificationTemplates,
-} from "@/services/notificationService";
 import { deductInventoryForOrder } from "@/services/inventoryService";
 import { calculateDeliveryFee } from "@/lib/delivery/pricing";
+import {
+  markAllNotificationsReadRemote,
+  markNotificationReadRemote,
+} from "@/services/notificationSyncService";
 
 interface AppState {
   orders: Order[];
@@ -19,6 +19,7 @@ interface AppState {
   setHasHydrated: (value: boolean) => void;
   setOrders: (orders: Order[]) => void;
   setDeliveries: (deliveries: DeliveryOrder[]) => void;
+  setNotifications: (notifications: Notification[]) => void;
   mergeOrders: (orders: Order[]) => void;
   mergeDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
@@ -32,7 +33,6 @@ interface AppState {
   ) => Promise<void>;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (userId?: string) => void;
-  addNotification: (n: Notification) => void;
   setDriverOnline: (online: boolean) => void;
 }
 
@@ -41,30 +41,6 @@ function mergeById<T extends { id: string }>(local: T[], remote: T[]): T[] {
   for (const item of local) map.set(item.id, item);
   for (const item of remote) map.set(item.id, item);
   return Array.from(map.values());
-}
-
-function notifyCustomer(
-  order: Order,
-  status: OrderStatus
-): Notification | null {
-  const templates: Partial<
-    Record<OrderStatus, { type: Notification["type"]; title: string; body: string }>
-  > = {
-    CONFIRMED: NotificationTemplates.orderConfirmed(order.order_number),
-    PREPARING: NotificationTemplates.orderPreparing(order.order_number),
-    READY: NotificationTemplates.orderReady(order.order_number),
-    OUT_FOR_DELIVERY: NotificationTemplates.outForDelivery(order.order_number),
-    DELIVERED: NotificationTemplates.delivered(order.order_number),
-  };
-  const t = templates[status];
-  if (!t) return null;
-  return createNotification({
-    userId: order.customer_id,
-    type: t.type,
-    title: t.title,
-    body: t.body,
-    data: { orderId: order.id },
-  });
 }
 
 /** Wipe legacy browser caches that used to store orders locally. */
@@ -96,6 +72,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       setHasHydrated: (value) => set({ hasHydrated: value }),
       setOrders: (orders) => set({ orders }),
       setDeliveries: (deliveries) => set({ deliveries }),
+      setNotifications: (notifications) => set({ notifications }),
       mergeOrders: (orders) =>
         set((s) => ({ orders: mergeById(s.orders, orders) })),
       mergeDeliveries: (deliveries) =>
@@ -108,57 +85,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
         })),
 
       addOrder: (order) => {
-        const staff = useDataStore
-          .getState()
-          .customers.filter((c) =>
-            ["STAFF", "MANAGER", "ADMIN", "SUPER_ADMIN"].includes(c.role)
-          );
-        const staffNotifs = [
-          // Broadcast so any open admin session hears the alert
-          createNotification({
-            userId: "staff",
-            ...NotificationTemplates.newOrderAdmin(order.order_number),
-            data: { orderId: order.id },
-          }),
-          ...staff.map((admin) =>
-            createNotification({
-              userId: admin.id,
-              ...NotificationTemplates.newOrderAdmin(order.order_number),
-              data: { orderId: order.id },
-            })
-          ),
-        ];
         set((s) => ({
           orders: [order, ...s.orders],
-          notifications: [...staffNotifs, ...s.notifications],
         }));
       },
 
       updateOrderStatus: (orderId, status) => {
         const now = new Date().toISOString();
         const order = get().orders.find((o) => o.id === orderId);
-        const notifs: Notification[] = [];
 
-        if (order) {
-          const customerNotif = notifyCustomer(order, status);
-          if (customerNotif) notifs.push(customerNotif);
-
-          if (status === "DELIVERED") {
-            notifs.push(
-              createNotification({
-                userId: order.customer_id,
-                ...NotificationTemplates.pointsEarned(order.points_earned),
-                data: { orderId: order.id },
-              })
-            );
-            void deductInventoryForOrder(
-              orderId,
-              (order.items || []).map((i) => ({
-                product_id: i.product_id,
-                quantity: i.quantity,
-              }))
-            );
-          }
+        if (order && status === "DELIVERED") {
+          void deductInventoryForOrder(
+            orderId,
+            (order.items || []).map((i) => ({
+              product_id: i.product_id,
+              quantity: i.quantity,
+            }))
+          );
         }
 
         set((s) => ({
@@ -172,9 +115,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
             if (status === "CANCELLED") updates.cancelled_at = now;
             return { ...o, ...updates };
           }),
-          notifications: notifs.length
-            ? [...notifs, ...s.notifications]
-            : s.notifications,
         }));
 
         void fetch(`/api/orders/${orderId}`, {
@@ -211,31 +151,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
           driverRecord?.profile?.full_name ?? "Your driver";
         const assignedDriverId = driverRecord?.id ?? driverId;
         const profileDriverId = driverRecord?.profile_id ?? null;
-        const notifs: Notification[] = [];
         const isReassign =
           !!previousDriverId && previousDriverId !== assignedDriverId;
-
-        if (order) {
-          notifs.push(
-            createNotification({
-              userId: order.customer_id,
-              ...NotificationTemplates.driverAssigned(
-                order.order_number,
-                driverName
-              ),
-              data: { orderId },
-            })
-          );
-          if (profileDriverId) {
-            notifs.push(
-              createNotification({
-                userId: profileDriverId,
-                ...NotificationTemplates.newDeliveryDriver(order.order_number),
-                data: { orderId },
-              })
-            );
-          }
-        }
 
         // Free previous driver if they have no other active deliveries
         if (isReassign && previousDriverId) {
@@ -330,7 +247,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
               ...s.deliveries.filter((d) => d.order_id !== orderId),
               nextDelivery,
             ],
-            notifications: [...notifs, ...s.notifications],
           };
         });
 
@@ -396,27 +312,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
           CANCELLED: "CANCELLED",
         };
         const newStatus = orderStatusMap[status];
-        const notifs: Notification[] = [];
 
-        if (order && newStatus) {
-          const customerNotif = notifyCustomer(order, newStatus);
-          if (customerNotif) notifs.push(customerNotif);
-          if (newStatus === "DELIVERED") {
-            notifs.push(
-              createNotification({
-                userId: order.customer_id,
-                ...NotificationTemplates.pointsEarned(order.points_earned),
-                data: { orderId: order.id },
-              })
-            );
-            void deductInventoryForOrder(
-              order.id,
-              (order.items || []).map((i) => ({
-                product_id: i.product_id,
-                quantity: i.quantity,
-              }))
-            );
-          }
+        if (order && newStatus === "DELIVERED") {
+          void deductInventoryForOrder(
+            order.id,
+            (order.items || []).map((i) => ({
+              product_id: i.product_id,
+              quantity: i.quantity,
+            }))
+          );
         }
 
         if (
@@ -466,9 +370,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
               ...(newStatus === "DELIVERED" ? { delivered_at: now } : {}),
             };
           }),
-          notifications: notifs.length
-            ? [...notifs, ...s.notifications]
-            : s.notifications,
         }));
 
         const res = await fetch(`/api/deliveries/${deliveryId}`, {
@@ -505,24 +406,25 @@ export const useAppStore = create<AppState>()((set, get) => ({
         }));
       },
 
-      markNotificationRead: (id) =>
+      markNotificationRead: (id) => {
         set((s) => ({
           notifications: s.notifications.map((n) =>
             n.id === id ? { ...n, is_read: true } : n
           ),
-        })),
+        }));
+        void markNotificationReadRemote(id);
+      },
 
-      markAllNotificationsRead: (userId) =>
+      markAllNotificationsRead: (userId) => {
         set((s) => ({
           notifications: s.notifications.map((n) =>
-            !userId || n.user_id === userId || n.user_id === "staff"
+            !userId || n.user_id === userId
               ? { ...n, is_read: true }
               : n
           ),
-        })),
-
-      addNotification: (n) =>
-        set((s) => ({ notifications: [n, ...s.notifications] })),
+        }));
+        void markAllNotificationsReadRemote();
+      },
 
       setDriverOnline: (online) => set({ driverOnline: online }),
 }));

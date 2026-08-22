@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import type { CartItem, CartItemAddon, CartItemOption } from "@/types";
 import { DELIVERY_CONFIG } from "@/data/demo";
 import { calculateOrderPointsEarned } from "@/services/loyaltyService";
@@ -70,9 +69,7 @@ export function formatCartOptions(
 /** Default: no pin until user confirms Samal location */
 const DEFAULT_DELIVERY: LatLng | null = null;
 
-export const useCartStore = create<CartState>()(
-  persist(
-    (set, get) => ({
+export const useCartStore = create<CartState>()((set, get) => ({
       items: [],
       promoCode: null,
       promoDiscount: 0,
@@ -165,9 +162,6 @@ export const useCartStore = create<CartState>()(
           pointsDiscount,
         });
       },
-    }),
-    { name: "island-coolers-cart-v3" }
-  )
-);
+    }));
 
 export { DELIVERY_CONFIG };

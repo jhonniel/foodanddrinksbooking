@@ -103,6 +103,77 @@ export async function removeProductRemote(productId: string): Promise<{
   return { ok: true };
 }
 
+export async function saveInventoryRemote(input: {
+  id?: string;
+  name: string;
+  unit: string;
+  currentQuantity: number;
+  minimumStock: number;
+  costPerUnit?: number;
+  supplier?: string | null;
+  sku?: string | null;
+}): Promise<{ item?: InventoryItem; error?: string; skipped?: boolean }> {
+  const res = await fetch("/api/catalog/inventory", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    item?: InventoryItem;
+    skipped?: boolean;
+  };
+  if (!res.ok) {
+    return { error: json.error ?? "Could not save inventory item." };
+  }
+  return { item: json.item, skipped: json.skipped };
+}
+
+export async function removeInventoryRemote(
+  inventoryItemId: string
+): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  if (!isUuid(inventoryItemId)) {
+    return { ok: true, skipped: true };
+  }
+
+  const res = await fetch("/api/catalog/inventory", {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: inventoryItemId }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    skipped?: boolean;
+  };
+  if (!res.ok) {
+    return { ok: false, error: json.error ?? "Could not delete inventory item." };
+  }
+  return { ok: true, skipped: json.skipped };
+}
+
+export async function removeCategoryRemote(categoryId: string): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  if (!isUuid(categoryId)) {
+    return { ok: true };
+  }
+
+  const res = await fetch("/api/catalog/categories", {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: categoryId }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    return { ok: false, error: json.error ?? "Could not delete category." };
+  }
+  return { ok: true };
+}
+
 export async function uploadProductImage(
   file: File,
   folder: string

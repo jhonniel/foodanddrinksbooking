@@ -48,9 +48,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
-  const updateUser = useAuthStore((s) => s.updateUser);
   const addOrder = useAppStore((s) => s.addOrder);
-  const addNotification = useAppStore((s) => s.addNotification);
 
   const items = useCartStore((s) => s.items);
   const orderType = useCartStore((s) => s.orderType);
@@ -127,25 +125,8 @@ export default function CheckoutPage() {
 
   const address = addresses.find((a) => a.id === selectedAddress);
 
-  const finishOrder = (order: Order, customerId: string) => {
+  const finishOrder = (order: Order) => {
     addOrder(order);
-    addNotification({
-      id: `n-${Date.now()}`,
-      user_id: customerId,
-      type: "ORDER",
-      title: "Order placed!",
-      body: `Your order ${order.order_number} has been received.`,
-      data: { orderId: order.id },
-      is_read: false,
-      created_at: new Date().toISOString(),
-    });
-
-    if (order.points_earned > 0 && user) {
-      updateUser({
-        points_balance: user.points_balance + order.points_earned,
-        lifetime_points: user.lifetime_points + order.points_earned,
-      });
-    }
 
     clearCart();
     toast.success("Order placed successfully!");
@@ -235,7 +216,7 @@ export default function CheckoutPage() {
         return;
       }
 
-      finishOrder(data.order, activeUser.id);
+      finishOrder(data.order);
     } catch {
       toast.error("Could not reach order API. Please try again.");
     } finally {

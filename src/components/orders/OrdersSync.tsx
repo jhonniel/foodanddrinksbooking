@@ -8,10 +8,7 @@ import {
   useAppStore,
 } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
-import {
-  createNotification,
-  NotificationTemplates,
-} from "@/services/notificationService";
+import { NotificationTemplates } from "@/services/notificationService";
 import { AUTO_CANCEL_REASON } from "@/lib/constants";
 import { canAccessAdmin } from "@/lib/auth/config";
 import type { DeliveryOrder, Driver, Order } from "@/types";
@@ -26,7 +23,6 @@ export function OrdersSync() {
   const authInitializing = useAuthStore((s) => s.initializing);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
-  const addNotification = useAppStore((s) => s.addNotification);
   const setDrivers = useDataStore((s) => s.setDrivers);
   const notifiedAutoCancel = useRef(new Set<string>());
 
@@ -72,25 +68,8 @@ export function OrdersSync() {
             order.order_number
           );
 
-          if (order.customer_id === user.id) {
-            addNotification(
-              createNotification({
-                userId: user.id,
-                ...template,
-                data: { orderId: order.id },
-              })
-            );
+          if (order.customer_id === user.id || isStaff) {
             toast.error(template.body);
-          } else if (isStaff) {
-            addNotification(
-              createNotification({
-                userId: "staff",
-                type: "ORDER",
-                title: "Order auto-cancelled",
-                body: `Order #${order.order_number} was cancelled after 1 hour without acceptance.`,
-                data: { orderId: order.id },
-              })
-            );
           }
         }
       } catch {
@@ -113,14 +92,7 @@ export function OrdersSync() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [
-    user,
-    authInitializing,
-    setOrders,
-    setDeliveries,
-    addNotification,
-    setDrivers,
-  ]);
+  }, [user, authInitializing, setOrders, setDeliveries, setDrivers]);
 
   return null;
 }

@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import type {
   Category,
   Product,
@@ -274,6 +273,7 @@ interface DataState {
   toggleCategoryActive: (id: string) => void;
 
   addInventoryItem: (input: CreateInventoryInput) => InventoryItem;
+  prependInventoryItem: (item: InventoryItem) => void;
   adjustInventory: (id: string, quantity: number, notes?: string) => void;
   /** Subtract amount from current stock (floors at 0) */
   decrementInventory: (id: string, amount: number) => void;
@@ -283,6 +283,7 @@ interface DataState {
   wasOrderInventoryDeducted: (orderId: string) => boolean;
 
   addReward: (input: CreateRewardInput) => Reward;
+  prependReward: (reward: Reward) => void;
   updateReward: (id: string, updates: Partial<Reward>) => void;
   deleteReward: (id: string) => void;
   toggleRewardActive: (id: string) => void;
@@ -303,6 +304,8 @@ interface DataState {
   updateExpense: (id: string, updates: Partial<Expense>) => void;
   deleteExpense: (id: string) => void;
   setExpenses: (expenses: Expense[]) => void;
+  setPromotions: (promotions: Promotion[]) => void;
+  setRewards: (rewards: Reward[]) => void;
 
   resetToSeed: () => void;
 }
@@ -352,19 +355,17 @@ const seedDrivers: Driver[] = [];
 
 const seedCustomers: Profile[] = [];
 
-export const useDataStore = create<DataState>()(
-  persist(
-    (set, get) => ({
+export const useDataStore = create<DataState>()((set, get) => ({
       hydrated: false,
-      categories: CATEGORIES,
-      products: PRODUCTS,
-      addons: ADDONS,
-      inventory: INVENTORY,
-      rewards: REWARDS,
-      promotions: PROMOTIONS,
+      categories: [],
+      products: [],
+      addons: [],
+      inventory: [],
+      rewards: [],
+      promotions: [],
       drivers: seedDrivers,
       customers: seedCustomers,
-      expenses: seedExpenses(),
+      expenses: [],
       deductedOrderIds: [],
 
       setHydrated: (v) => set({ hydrated: v }),
@@ -554,6 +555,11 @@ export const useDataStore = create<DataState>()(
         return item;
       },
 
+      prependInventoryItem: (item) =>
+        set((s) => ({
+          inventory: [item, ...s.inventory.filter((i) => i.id !== item.id)],
+        })),
+
       adjustInventory: (id, quantity) =>
         set((s) => ({
           inventory: s.inventory.map((item) =>
@@ -643,6 +649,11 @@ export const useDataStore = create<DataState>()(
         set((s) => ({ rewards: [...s.rewards, reward] }));
         return reward;
       },
+
+      prependReward: (reward) =>
+        set((s) => ({
+          rewards: [reward, ...s.rewards.filter((r) => r.id !== reward.id)],
+        })),
 
       updateReward: (id, updates) =>
         set((s) => ({
@@ -852,6 +863,10 @@ export const useDataStore = create<DataState>()(
 
       setExpenses: (expenses) => set({ expenses }),
 
+      setPromotions: (promotions) => set({ promotions }),
+
+      setRewards: (rewards) => set({ rewards }),
+
       resetToSeed: () =>
         set({
           categories: CATEGORIES,
@@ -865,39 +880,4 @@ export const useDataStore = create<DataState>()(
           expenses: seedExpenses(),
           deductedOrderIds: [],
         }),
-    }),
-    {
-      // v4: do not persist drivers/customers — those come from Supabase.
-      // Persisting empty drivers[] overwrote /api/drivers/me after sync.
-      name: "island-coolers-data-v4",
-      partialize: (state) => ({
-        categories: state.categories,
-        products: state.products,
-        addons: state.addons,
-        inventory: state.inventory,
-        rewards: state.rewards,
-        promotions: state.promotions,
-        deductedOrderIds: state.deductedOrderIds,
-      }),
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-        // Backfill recipes for older persisted products that lack them
-        state.products = state.products.map((p) =>
-          p.recipes && p.recipes.length > 0
-            ? p
-            : { ...p, recipes: recipesForProduct(p.id) }
-        );
-        if (!state.deductedOrderIds) state.deductedOrderIds = [];
-        state.expenses = [];
-        state.promotions = state.promotions.map((p) => ({
-          ...p,
-          redemption_mode: p.redemption_mode ?? ("CLAIM" as const),
-          kind: p.kind ?? ("VOUCHER" as const),
-        }));
-        state.drivers = [];
-        state.customers = [];
-        state.setHydrated(true);
-      },
-    }
-  )
-);
+    }));

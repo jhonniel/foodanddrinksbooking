@@ -14,7 +14,6 @@ function AdminNotificationBridge() {
   const user = useAuthStore((s) => s.user);
   useRealtimeNotifications(user?.id, {
     audience: "admin",
-    alsoMatchIds: ["staff"],
     sound: "urgent",
   });
   return <AutoEnableStaffAlerts />;

@@ -19,7 +19,6 @@ import {
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
-import { useExpensesSync } from "@/hooks/useExpensesSync";
 import {
   createExpenseRemote,
   deleteExpenseRemote,
@@ -78,8 +77,6 @@ const EXPENSE_CATEGORIES = Object.keys(
 ) as ExpenseCategory[];
 
 export default function AdminReportsPage() {
-  useExpensesSync();
-
   const orders = useAppStore((s) => s.orders);
   const expenses = useDataStore((s) => s.expenses);
   const prependExpense = useDataStore((s) => s.prependExpense);

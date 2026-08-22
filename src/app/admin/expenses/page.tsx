@@ -12,7 +12,6 @@ import {
   createExpenseRemote,
   deleteExpenseRemote,
 } from "@/services/expenseService";
-import { useExpensesSync } from "@/hooks/useExpensesSync";
 import { useAppStore } from "@/stores/app";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { Button } from "@/components/ui/button";
@@ -43,8 +42,6 @@ const EXPENSE_CATEGORIES = Object.keys(
 ) as ExpenseCategory[];
 
 export default function AdminExpensesPage() {
-  useExpensesSync();
-
   const orders = useAppStore((s) => s.orders);
   const expenses = useDataStore((s) => s.expenses);
   const prependExpense = useDataStore((s) => s.prependExpense);

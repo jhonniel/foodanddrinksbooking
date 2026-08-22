@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OfflineBanner } from "@/components/shared/OfflineBanner";
+import { DataSyncProvider } from "@/components/shared/DataSyncProvider";
+import { NotificationsSync } from "@/components/shared/NotificationsSync";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { OrdersSync } from "@/components/orders/OrdersSync";
 
@@ -25,6 +27,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={client}>
       <TooltipProvider>
         <AuthProvider>
+          <DataSyncProvider />
+          <NotificationsSync />
           <OrdersSync />
           <OfflineBanner />
           {children}

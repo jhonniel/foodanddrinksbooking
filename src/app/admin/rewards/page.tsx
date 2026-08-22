@@ -4,6 +4,11 @@ import { useState } from "react";
 import { Gift, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
+import {
+  deleteRewardRemote,
+  saveRewardRemote,
+  toggleRewardActiveRemote,
+} from "@/services/rewardService";
 import { formatPoints } from "@/lib/utils/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,12 +26,13 @@ import type { Reward } from "@/types";
 
 export default function AdminRewardsPage() {
   const rewards = useDataStore((s) => s.rewards);
-  const addReward = useDataStore((s) => s.addReward);
+  const prependReward = useDataStore((s) => s.prependReward);
   const updateReward = useDataStore((s) => s.updateReward);
   const deleteReward = useDataStore((s) => s.deleteReward);
   const toggleRewardActive = useDataStore((s) => s.toggleRewardActive);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Reward | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -62,7 +68,7 @@ export default function AdminRewardsPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const trimmedName = name.trim();
     const points = parseInt(pointsRequired, 10);
     const discount = discountValue ? parseFloat(discountValue) : undefined;
@@ -80,29 +86,37 @@ export default function AdminRewardsPage() {
       return;
     }
 
-    if (editing) {
-      updateReward(editing.id, {
+    setSaving(true);
+    try {
+      const result = await saveRewardRemote({
+        id: editing?.id,
         name: trimmedName,
         description: description.trim() || null,
-        points_required: points,
-        discount_value: discount ?? null,
-      });
-      toast.success(`"${trimmedName}" updated.`);
-    } else {
-      addReward({
-        name: trimmedName,
-        description: description.trim() || undefined,
         pointsRequired: points,
-        discountValue: discount,
+        discountValue: discount ?? null,
       });
-      toast.success(`"${trimmedName}" reward created.`);
-    }
 
-    setDialogOpen(false);
-    resetForm();
+      if (result.error || !result.reward) {
+        toast.error(result.error || "Could not save reward.");
+        return;
+      }
+
+      if (editing) {
+        updateReward(editing.id, result.reward);
+        toast.success(`"${trimmedName}" updated.`);
+      } else {
+        prependReward(result.reward);
+        toast.success(`"${trimmedName}" reward created.`);
+      }
+
+      setDialogOpen(false);
+      resetForm();
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = (reward: Reward) => {
+  const handleDelete = async (reward: Reward) => {
     if (
       !window.confirm(
         `Delete “${reward.name}”? Customers will no longer see this reward.`
@@ -110,16 +124,30 @@ export default function AdminRewardsPage() {
     ) {
       return;
     }
+
+    const result = await deleteRewardRemote(reward.id);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+
     deleteReward(reward.id);
     toast.success(`"${reward.name}" deleted.`);
   };
 
-  const handleToggleActive = (id: string, rewardName: string) => {
-    toggleRewardActive(id);
+  const handleToggleActive = async (id: string, rewardName: string) => {
     const reward = rewards.find((r) => r.id === id);
-    const nowActive = reward ? !reward.is_active : true;
+    const nextActive = reward ? !reward.is_active : true;
+
+    const result = await toggleRewardActiveRemote(id, nextActive);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+
+    toggleRewardActive(id);
     toast.success(
-      `"${rewardName}" is now ${nowActive ? "active" : "inactive"}.`
+      `"${rewardName}" is now ${nextActive ? "active" : "inactive"}.`
     );
   };
 

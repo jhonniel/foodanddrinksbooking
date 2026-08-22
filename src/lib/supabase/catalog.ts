@@ -88,6 +88,18 @@ export async function updateCategoryImageInSupabase(
   return { ok: true };
 }
 
+export async function deleteCategoryInSupabase(
+  categoryId: string
+): Promise<{ error?: string }> {
+  if (!isSupabaseConfigured()) return {};
+  const client = await createServerClient();
+  if (!client) return { error: "Supabase is not configured." };
+
+  const { error } = await client.from("categories").delete().eq("id", categoryId);
+  if (error) return { error: error.message };
+  return {};
+}
+
 export async function upsertProductInSupabase(
   product: Product
 ): Promise<{ ok: true } | { error: string }> {
@@ -147,6 +159,73 @@ export async function deleteProductInSupabase(
   const { error } = await client.from("products").delete().eq("id", productId);
   if (error) return { error: error.message };
   return { ok: true };
+}
+
+export async function saveInventoryItemInSupabase(input: {
+  id?: string;
+  name: string;
+  unit: string;
+  currentQuantity: number;
+  minimumStock: number;
+  costPerUnit?: number;
+  supplier?: string | null;
+  sku?: string | null;
+}): Promise<{ item?: ReturnType<typeof mapInventory>; error?: string }> {
+  if (!isSupabaseConfigured()) {
+    return { error: "Supabase is not configured." };
+  }
+  const client = await createServerClient();
+  if (!client) return { error: "Supabase is not configured." };
+
+  const now = new Date().toISOString();
+  const row = {
+    ...(input.id ? { id: input.id } : {}),
+    name: input.name.trim(),
+    sku: input.sku?.trim() || null,
+    unit: input.unit,
+    current_quantity: input.currentQuantity,
+    minimum_stock: input.minimumStock,
+    cost_per_unit: input.costPerUnit ?? 0,
+    supplier: input.supplier?.trim() || null,
+    last_restocked_at: now,
+    updated_at: now,
+  };
+
+  const query = input.id
+    ? client.from("inventory_items").upsert(row).select("*").single()
+    : client.from("inventory_items").insert(row).select("*").single();
+
+  const { data, error } = await query;
+  if (error || !data) {
+    return { error: error?.message || "Could not save inventory item." };
+  }
+
+  return { item: mapInventory(data as DbInventory) };
+}
+
+export async function deleteInventoryItemInSupabase(
+  inventoryItemId: string
+): Promise<{ error?: string }> {
+  if (!isSupabaseConfigured()) return {};
+  const client = await createServerClient();
+  if (!client) return { error: "Supabase is not configured." };
+
+  await client
+    .from("product_recipes")
+    .delete()
+    .eq("inventory_item_id", inventoryItemId);
+  await client
+    .from("inventory_transactions")
+    .delete()
+    .eq("inventory_item_id", inventoryItemId);
+
+  const { error } = await client
+    .from("inventory_items")
+    .delete()
+    .eq("id", inventoryItemId);
+
+  if (error) return { error: error.message };
+  return {};
 }
 
 export async function updateProductImageInSupabase(

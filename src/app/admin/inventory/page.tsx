@@ -4,6 +4,10 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Package, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
+import {
+  removeInventoryRemote,
+  saveInventoryRemote,
+} from "@/services/catalogService";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +37,7 @@ const UNITS = ["g", "ml", "pcs", "kg", "L"] as const;
 export default function AdminInventoryPage() {
   const inventory = useDataStore((s) => s.inventory);
   const products = useDataStore((s) => s.products);
-  const addInventoryItem = useDataStore((s) => s.addInventoryItem);
+  const prependInventoryItem = useDataStore((s) => s.prependInventoryItem);
   const adjustInventory = useDataStore((s) => s.adjustInventory);
   const deleteInventoryItem = useDataStore((s) => s.deleteInventoryItem);
 
@@ -41,6 +45,9 @@ export default function AdminInventoryPage() {
   const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<InventoryItem | null>(null);
   const [adjustQty, setAdjustQty] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [name, setName] = useState("");
   const [unit, setUnit] = useState<string>("pcs");
@@ -71,7 +78,7 @@ export default function AdminInventoryPage() {
     if (!open) resetAddForm();
   };
 
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     const trimmedName = name.trim();
     const qty = parseFloat(currentQty);
     const min = parseFloat(minimumStock);
@@ -94,21 +101,32 @@ export default function AdminInventoryPage() {
       return;
     }
 
-    addInventoryItem({
-      name: trimmedName,
-      unit,
-      currentQuantity: qty,
-      minimumStock: min,
-      costPerUnit: cost,
-      supplier: supplier.trim() || undefined,
-    });
+    setSaving(true);
+    try {
+      const result = await saveInventoryRemote({
+        name: trimmedName,
+        unit,
+        currentQuantity: qty,
+        minimumStock: min,
+        costPerUnit: cost,
+        supplier: supplier.trim() || null,
+      });
 
-    toast.success(`"${trimmedName}" added to inventory.`);
-    setAddDialogOpen(false);
-    resetAddForm();
+      if (result.error || !result.item) {
+        toast.error(result.error || "Could not save inventory item.");
+        return;
+      }
+
+      prependInventoryItem(result.item);
+      toast.success(`"${trimmedName}" added to inventory.`);
+      setAddDialogOpen(false);
+      resetAddForm();
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleAdjust = () => {
+  const handleAdjust = async () => {
     if (!adjustItem) return;
     const qty = parseFloat(adjustQty);
     if (isNaN(qty) || qty < 0) {
@@ -116,17 +134,40 @@ export default function AdminInventoryPage() {
       return;
     }
 
-    adjustInventory(adjustItem.id, qty);
-    void applyInventoryAvailabilityRules().then((flipped) => {
-      if (flipped.length > 0) {
-        toast.warning(
-          `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable (ingredient out of stock).`
-        );
+    setAdjusting(true);
+    try {
+      const result = await saveInventoryRemote({
+        id: adjustItem.id,
+        name: adjustItem.name,
+        unit: adjustItem.unit,
+        currentQuantity: qty,
+        minimumStock: adjustItem.minimum_stock,
+        costPerUnit: adjustItem.cost_per_unit,
+        supplier: adjustItem.supplier,
+        sku: adjustItem.sku,
+      });
+
+      if (result.error || !result.item) {
+        toast.error(result.error || "Could not update stock.");
+        return;
       }
-    });
-    toast.success(`Stock for "${adjustItem.name}" updated to ${qty} ${adjustItem.unit}.`);
-    setAdjustItem(null);
-    setAdjustQty("");
+
+      adjustInventory(adjustItem.id, qty);
+      void applyInventoryAvailabilityRules().then((flipped) => {
+        if (flipped.length > 0) {
+          toast.warning(
+            `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable (ingredient out of stock).`
+          );
+        }
+      });
+      toast.success(
+        `Stock for "${adjustItem.name}" updated to ${qty} ${adjustItem.unit}.`
+      );
+      setAdjustItem(null);
+      setAdjustQty("");
+    } finally {
+      setAdjusting(false);
+    }
   };
 
   const openAdjustDialog = (item: InventoryItem) => {
@@ -143,22 +184,33 @@ export default function AdminInventoryPage() {
     );
   }, [deleteTarget, products]);
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
 
     const name = deleteTarget.name;
-    deleteInventoryItem(deleteTarget.id);
-    setDeleteTarget(null);
-
-    void applyInventoryAvailabilityRules().then((flipped) => {
-      if (flipped.length > 0) {
-        toast.warning(
-          `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable after ingredient removal.`
-        );
+    setDeleting(true);
+    try {
+      const result = await removeInventoryRemote(deleteTarget.id);
+      if (!result.ok) {
+        toast.error(result.error || "Could not delete inventory item.");
+        return;
       }
-    });
 
-    toast.success(`"${name}" removed from inventory.`);
+      deleteInventoryItem(deleteTarget.id);
+      setDeleteTarget(null);
+
+      void applyInventoryAvailabilityRules().then((flipped) => {
+        if (flipped.length > 0) {
+          toast.warning(
+            `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable after ingredient removal.`
+          );
+        }
+      });
+
+      toast.success(`"${name}" removed from inventory.`);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -257,9 +309,10 @@ export default function AdminInventoryPage() {
                 </div>
                 <Button
                   className="w-full bg-green hover:bg-green/90"
-                  onClick={handleAddItem}
+                  onClick={() => void handleAddItem()}
+                  disabled={saving}
                 >
-                  Save Item
+                  {saving ? "Saving…" : "Save Item"}
                 </Button>
               </div>
             </DialogContent>
@@ -270,7 +323,7 @@ export default function AdminInventoryPage() {
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          if (!open && !deleting) setDeleteTarget(null);
         }}
       >
         <DialogContent className="sm:max-w-md" showCloseButton={false}>
@@ -308,6 +361,7 @@ export default function AdminInventoryPage() {
             <Button
               type="button"
               variant="outline"
+              disabled={deleting}
               onClick={() => setDeleteTarget(null)}
             >
               Cancel
@@ -315,9 +369,10 @@ export default function AdminInventoryPage() {
             <Button
               type="button"
               variant="destructive"
-              onClick={handleConfirmDelete}
+              disabled={deleting}
+              onClick={() => void handleConfirmDelete()}
             >
-              Delete item
+              {deleting ? "Deleting…" : "Delete item"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -531,9 +586,10 @@ export default function AdminInventoryPage() {
             </p>
             <Button
               className="w-full bg-green hover:bg-green/90"
-              onClick={handleAdjust}
+              onClick={() => void handleAdjust()}
+              disabled={adjusting}
             >
-              Update Stock
+              {adjusting ? "Saving…" : "Update Stock"}
             </Button>
           </div>
         </DialogContent>

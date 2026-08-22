@@ -22,6 +22,12 @@ import {
 } from "@/lib/supabase/loyalty";
 import { processPayment } from "@/lib/payments/provider";
 import { generateIdempotencyKey } from "@/lib/utils/format";
+import {
+  notifyDriverAssignedInSupabase,
+  notifyOrderAutoCancelledInSupabase,
+  notifyOrderPlacedInSupabase,
+  notifyOrderStatusInSupabase,
+} from "@/lib/supabase/orderNotifications";
 import type {
   CartItem,
   DeliveryOrder,
@@ -259,7 +265,12 @@ export async function cancelStalePendingOrdersInSupabase(): Promise<Order[]> {
     return [];
   }
 
-  return ((data ?? []) as DbOrderRow[]).map(mapOrder);
+  const cancelled = ((data ?? []) as DbOrderRow[]).map(mapOrder);
+  for (const order of cancelled) {
+    await notifyOrderAutoCancelledInSupabase(order);
+  }
+
+  return cancelled;
 }
 
 export async function fetchOrdersFromSupabase(options?: {
@@ -584,7 +595,10 @@ export async function createOrderInSupabase(input: {
     });
   }
 
-  return { order: { ...loaded.order, customer: input.customer } };
+  const order = { ...loaded.order, customer: input.customer };
+  await notifyOrderPlacedInSupabase(order);
+
+  return { order };
 }
 
 export async function updateOrderStatusInSupabase(
@@ -626,6 +640,8 @@ export async function updateOrderStatusInSupabase(
       points_discount: loaded.order.points_discount,
     });
   }
+
+  await notifyOrderStatusInSupabase(loaded.order, status);
 
   return { order: loaded.order };
 }
@@ -757,6 +773,26 @@ export async function assignDriverInSupabase(input: {
   if (orderError) return { error: orderError.message };
 
   const refreshed = await fetchOrderByIdFromSupabase(input.orderId);
+  if (refreshed?.order) {
+    let driverName = "Your driver";
+    if (profileDriverId) {
+      const { data: profileRow } = await client
+        .from("profiles")
+        .select("full_name")
+        .eq("id", profileDriverId)
+        .maybeSingle();
+      if (profileRow?.full_name) {
+        driverName = String(profileRow.full_name);
+      }
+    }
+
+    await notifyDriverAssignedInSupabase({
+      order: refreshed.order,
+      driverName,
+      driverProfileId: profileDriverId,
+    });
+  }
+
   return {
     order: refreshed?.order,
     delivery: deliveryRow
@@ -897,6 +933,10 @@ export async function updateDeliveryStatusInSupabase(input: {
       discount: refreshed.order.discount,
       points_discount: refreshed.order.points_discount,
     });
+  }
+
+  if (refreshed?.order && orderStatus) {
+    await notifyOrderStatusInSupabase(refreshed.order, orderStatus);
   }
 
   return {

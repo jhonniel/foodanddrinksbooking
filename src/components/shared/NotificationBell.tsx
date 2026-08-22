@@ -17,12 +17,7 @@ export function NotificationBell({
   const notifications = useAppStore((s) => s.notifications);
 
   const unread = notifications.filter(
-    (n) =>
-      !n.is_read &&
-      (n.user_id === user?.id ||
-        (user &&
-          ["STAFF", "MANAGER", "ADMIN", "SUPER_ADMIN"].includes(user.role) &&
-          n.user_id === "staff"))
+    (n) => !n.is_read && n.user_id === user?.id
   ).length;
 
   return (

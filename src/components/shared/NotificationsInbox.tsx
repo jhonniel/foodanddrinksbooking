@@ -37,11 +37,9 @@ function NotificationIcon({ type }: { type: Notification["type"] }) {
 export function NotificationsInbox({
   orderHref,
   showSoundToggle = false,
-  includeStaffBroadcast = false,
 }: {
   orderHref: (orderId: string) => string;
   showSoundToggle?: boolean;
-  includeStaffBroadcast?: boolean;
 }) {
   const user = useAuthStore((s) => s.user);
   const notifications = useAppStore((s) => s.notifications);
@@ -49,11 +47,7 @@ export function NotificationsInbox({
   const markAllRead = useAppStore((s) => s.markAllNotificationsRead);
 
   const userNotifications = notifications
-    .filter(
-      (n) =>
-        n.user_id === user?.id ||
-        (includeStaffBroadcast && n.user_id === "staff")
-    )
+    .filter((n) => n.user_id === user?.id)
     .sort(
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()

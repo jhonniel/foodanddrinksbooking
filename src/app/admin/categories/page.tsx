@@ -15,6 +15,7 @@ import { useDataStore } from "@/stores/data";
 import {
   syncCategory,
   uploadCategoryImage,
+  removeCategoryRemote,
 } from "@/services/catalogService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,7 +164,7 @@ export default function AdminCategoriesPage() {
     }
   };
 
-  const handleDelete = (category: Category) => {
+  const handleDelete = async (category: Category) => {
     const linked = products.filter((p) => p.category_id === category.id);
     if (linked.length > 0) {
       toast.error(
@@ -177,6 +178,12 @@ export default function AdminCategoriesPage() {
         `Delete “${category.name}”? This cannot be undone.`
       )
     ) {
+      return;
+    }
+
+    const remote = await removeCategoryRemote(category.id);
+    if (!remote.ok) {
+      toast.error(remote.error || "Could not delete category.");
       return;
     }
 

@@ -5,21 +5,24 @@ import {
 } from "@/lib/auth/server";
 import { jsonError, jsonOk } from "@/lib/auth/http";
 import { isSupabaseConfigured } from "@/lib/auth/config";
-import { upsertCategoryInSupabase, deleteCategoryInSupabase } from "@/lib/supabase/catalog";
-import type { Category } from "@/types";
+import {
+  deleteInventoryItemInSupabase,
+  saveInventoryItemInSupabase,
+} from "@/lib/supabase/catalog";
 
-const categorySchema = z.object({
-  category: z.object({
-    id: z.string().uuid(),
-    name: z.string().min(1),
-    slug: z.string().min(1),
-    description: z.string().nullable(),
-    image_url: z.string().nullable(),
-    sort_order: z.number(),
-    is_active: z.boolean(),
-    created_at: z.string(),
-    updated_at: z.string(),
-  }),
+const saveSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(120),
+  unit: z.enum(["g", "ml", "pcs", "kg", "L"]),
+  currentQuantity: z.coerce.number().nonnegative(),
+  minimumStock: z.coerce.number().nonnegative(),
+  costPerUnit: z.coerce.number().nonnegative().optional(),
+  supplier: z.string().max(120).optional().nullable(),
+  sku: z.string().max(64).optional().nullable(),
+});
+
+const deleteSchema = z.object({
+  id: z.string().uuid(),
 });
 
 export async function PUT(request: Request) {
@@ -32,21 +35,18 @@ export async function PUT(request: Request) {
   }
 
   const json = await request.json().catch(() => null);
-  const parsed = categorySchema.safeParse(json);
+  const parsed = saveSchema.safeParse(json);
   if (!parsed.success) {
-    return jsonError("Invalid category payload.");
+    return jsonError("Invalid inventory payload.");
   }
 
-  const result = await upsertCategoryInSupabase(
-    parsed.data.category as Category
-  );
-  if ("error" in result) return jsonError(result.error, 502);
-  return jsonOk({ ok: true });
-}
+  const result = await saveInventoryItemInSupabase(parsed.data);
+  if (result.error || !result.item) {
+    return jsonError(result.error || "Could not save inventory item.", 502);
+  }
 
-const deleteSchema = z.object({
-  id: z.string().uuid(),
-});
+  return jsonOk({ ok: true, item: result.item });
+}
 
 export async function DELETE(request: Request) {
   const profile = await getSessionProfileFromCookies();
@@ -59,9 +59,9 @@ export async function DELETE(request: Request) {
 
   const json = await request.json().catch(() => null);
   const parsed = deleteSchema.safeParse(json);
-  if (!parsed.success) return jsonError("Invalid category id.");
+  if (!parsed.success) return jsonError("Invalid inventory item id.");
 
-  const result = await deleteCategoryInSupabase(parsed.data.id);
+  const result = await deleteInventoryItemInSupabase(parsed.data.id);
   if (result.error) return jsonError(result.error, 502);
   return jsonOk({ ok: true });
 }
