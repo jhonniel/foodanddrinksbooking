@@ -7,6 +7,10 @@ import { Heart, Plus, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils/format";
 import { isProductOrderable } from "@/lib/inventory/availability";
+import {
+  getRemainingPurchasable,
+} from "@/lib/cart/stockLimits";
+import { useCartStore } from "@/stores/cart";
 import { useDataStore } from "@/stores/data";
 import type { Product } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -31,7 +35,9 @@ export function ProductCard({
   const link = href || `/menu/${product.slug}`;
   const reduce = useReducedMotion();
   const inventory = useDataStore((s) => s.inventory);
+  const cartItems = useCartStore((s) => s.items);
   const orderable = isProductOrderable(product, inventory);
+  const remaining = getRemainingPurchasable(product, inventory, cartItems);
 
   return (
     <motion.div
@@ -122,7 +128,7 @@ export function ProductCard({
               <span>{(product.rating ?? 0).toFixed(1)}</span>
             </div>
           </div>
-          {onAdd && orderable && (
+          {onAdd && orderable && remaining > 0 && (
             <motion.div whileTap={{ scale: 0.88 }} whileHover={{ scale: 1.06 }}>
               <Button
                 size="icon"

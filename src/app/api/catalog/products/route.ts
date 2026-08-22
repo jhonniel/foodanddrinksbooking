@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import {
   assertRole,
   getSessionProfileFromCookies,
@@ -34,10 +35,10 @@ const productSchema = z.object({
     recipes: z
       .array(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().uuid().optional(),
           product_id: z.string().uuid(),
           inventory_item_id: z.string().uuid(),
-          quantity_required: z.number(),
+          quantity_required: z.number().positive(),
         })
       )
       .optional(),
@@ -63,9 +64,15 @@ export async function PUT(request: Request) {
     return jsonError("Invalid product payload.");
   }
 
-  const result = await upsertProductInSupabase(
-    parsed.data.product as Product
-  );
+  const result = await upsertProductInSupabase({
+    ...(parsed.data.product as Product),
+    recipes: parsed.data.product.recipes?.map((r) => ({
+      id: r.id ?? randomUUID(),
+      product_id: r.product_id,
+      inventory_item_id: r.inventory_item_id,
+      quantity_required: r.quantity_required,
+    })),
+  });
   if ("error" in result) return jsonError(result.error, 502);
   return jsonOk({ ok: true });
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { Category, Product } from "@/types";
+import { randomUUID } from "crypto";
+import type { Category, Product, ProductRecipe } from "@/types";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
 import {
@@ -13,6 +14,72 @@ import {
   type DbProduct,
   type DbRecipe,
 } from "@/lib/supabase/catalogMap";
+
+function isUuid(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    id
+  );
+}
+
+/** Replace product recipes without wiping rows when the insert would fail. */
+async function syncProductRecipesInSupabase(
+  client: NonNullable<Awaited<ReturnType<typeof createServerClient>>>,
+  productId: string,
+  recipes: ProductRecipe[] | undefined
+): Promise<{ error?: string }> {
+  if (recipes === undefined) return {};
+
+  const valid = recipes.filter((r) => isUuid(r.inventory_item_id));
+  if (valid.length !== recipes.length) {
+    return {
+      error:
+        "One or more ingredients are not linked to Supabase inventory. Re-select ingredients from the inventory list.",
+    };
+  }
+
+  const keepInventoryIds = new Set(valid.map((r) => r.inventory_item_id));
+
+  const { data: existing, error: listError } = await client
+    .from("product_recipes")
+    .select("id, inventory_item_id")
+    .eq("product_id", productId);
+
+  if (listError) return { error: listError.message };
+
+  const toDelete = (existing ?? []).filter(
+    (row) => !keepInventoryIds.has(String(row.inventory_item_id))
+  );
+
+  if (toDelete.length > 0) {
+    const { error } = await client
+      .from("product_recipes")
+      .delete()
+      .in(
+        "id",
+        toDelete.map((r) => String(r.id))
+      );
+    if (error) return { error: error.message };
+  }
+
+  for (const recipe of valid) {
+    const row = {
+      id: isUuid(recipe.id) ? recipe.id : randomUUID(),
+      product_id: productId,
+      inventory_item_id: recipe.inventory_item_id,
+      quantity_required: recipe.quantity_required,
+    };
+
+    const { error } = await client.from("product_recipes").upsert(row, {
+      onConflict: "id",
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+  }
+
+  return {};
+}
 
 export async function fetchCatalogFromSupabase() {
   if (!isSupabaseConfigured()) return null;
@@ -129,22 +196,12 @@ export async function upsertProductInSupabase(
 
   if (error) return { error: error.message };
 
-  if (product.recipes) {
-    await client.from("product_recipes").delete().eq("product_id", product.id);
-    if (product.recipes.length > 0) {
-      const { error: recipeError } = await client
-        .from("product_recipes")
-        .insert(
-          product.recipes.map((r) => ({
-            id: r.id,
-            product_id: product.id,
-            inventory_item_id: r.inventory_item_id,
-            quantity_required: r.quantity_required,
-          }))
-        );
-      if (recipeError) return { error: recipeError.message };
-    }
-  }
+  const recipeResult = await syncProductRecipesInSupabase(
+    client,
+    product.id,
+    product.recipes
+  );
+  if (recipeResult.error) return { error: recipeResult.error };
 
   return { ok: true };
 }

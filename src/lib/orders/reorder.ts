@@ -1,4 +1,7 @@
 import { isProductOrderable } from "@/lib/inventory/availability";
+import {
+  getRemainingPurchasable,
+} from "@/lib/cart/stockLimits";
 import type { CartItem, InventoryItem, OrderItem, Product } from "@/types";
 
 export function getUnavailableReorderItems(
@@ -18,13 +21,55 @@ export function getUnavailableReorderItems(
   return unavailable;
 }
 
+export function getInsufficientStockReorderItems(
+  items: OrderItem[],
+  products: Product[],
+  inventory: InventoryItem[],
+  cartItems: Pick<CartItem, "id" | "productId" | "quantity">[] = []
+): string[] {
+  const neededByProduct = new Map<string, { name: string; quantity: number }>();
+
+  for (const item of items) {
+    const existing = neededByProduct.get(item.product_id);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      neededByProduct.set(item.product_id, {
+        name: item.product_name,
+        quantity: item.quantity,
+      });
+    }
+  }
+
+  const insufficient: string[] = [];
+
+  for (const [productId, { name, quantity }] of neededByProduct) {
+    const product = products.find((p) => p.id === productId);
+    if (!product) continue;
+
+    const remaining = getRemainingPurchasable(product, inventory, cartItems);
+    if (quantity > remaining) {
+      insufficient.push(name);
+    }
+  }
+
+  return insufficient;
+}
+
 export function canReorderItems(
   items: OrderItem[],
   products: Product[],
-  inventory: InventoryItem[]
+  inventory: InventoryItem[],
+  cartItems: Pick<CartItem, "id" | "productId" | "quantity">[] = []
 ): boolean {
   if (!items.length) return false;
-  return getUnavailableReorderItems(items, products, inventory).length === 0;
+  if (getUnavailableReorderItems(items, products, inventory).length > 0) {
+    return false;
+  }
+  return (
+    getInsufficientStockReorderItems(items, products, inventory, cartItems)
+      .length === 0
+  );
 }
 
 export function orderItemToCartItem(item: OrderItem): Omit<CartItem, "id"> {

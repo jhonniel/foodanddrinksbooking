@@ -116,6 +116,16 @@ export function getProductStockStatus(
   };
 }
 
+/** Finished units this product can make from current inventory (recipe bottleneck). */
+export function getProductMakeable(
+  product: Pick<Product, "recipes">,
+  inventory: InventoryItem[]
+): number {
+  const status = getProductStockStatus(product, inventory);
+  if (status.level === "no_recipe") return 0;
+  return status.makeable ?? 0;
+}
+
 /** Can customers order this product right now? */
 export function isProductOrderable(
   product: Pick<Product, "is_available" | "recipes">,
@@ -125,5 +135,5 @@ export function isProductOrderable(
   const status = getProductStockStatus(product, inventory);
   // No recipe → cannot order (stock cannot be tracked/deducted).
   if (status.level === "no_recipe") return false;
-  return (status.makeable ?? 0) > 0;
+  return getProductMakeable(product, inventory) > 0;
 }

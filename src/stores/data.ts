@@ -436,25 +436,37 @@ export const useDataStore = create<DataState>()((set, get) => ({
 
       setProductRecipes: (productId, recipes) =>
         set((s) => ({
-          products: s.products.map((p) =>
-            p.id === productId
-              ? {
-                  ...p,
-                  recipes: recipes
-                    .filter((r) => r.inventoryItemId && r.quantityRequired > 0)
-                    .map((r) => ({
-                      id:
-                        typeof crypto !== "undefined" && "randomUUID" in crypto
-                          ? crypto.randomUUID()
-                          : `recipe-${productId}-${Date.now()}`,
-                      product_id: productId,
-                      inventory_item_id: r.inventoryItemId,
-                      quantity_required: r.quantityRequired,
-                    })),
-                  updated_at: new Date().toISOString(),
-                }
-              : p
-          ),
+          products: s.products.map((p) => {
+            if (p.id !== productId) return p;
+            const existingByInventory = new Map(
+              (p.recipes ?? []).map((r) => [r.inventory_item_id, r])
+            );
+            return {
+              ...p,
+              recipes: recipes
+                .filter((r) => r.inventoryItemId && r.quantityRequired > 0)
+                .map((r) => {
+                  const existing = existingByInventory.get(r.inventoryItemId);
+                  const existingId = existing?.id;
+                  const id =
+                    existingId &&
+                    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                      existingId
+                    )
+                      ? existingId
+                      : typeof crypto !== "undefined" && "randomUUID" in crypto
+                        ? crypto.randomUUID()
+                        : `recipe-${productId}-${r.inventoryItemId}`;
+                  return {
+                    id,
+                    product_id: productId,
+                    inventory_item_id: r.inventoryItemId,
+                    quantity_required: r.quantityRequired,
+                  };
+                }),
+              updated_at: new Date().toISOString(),
+            };
+          }),
         })),
 
       deleteProduct: (id) =>

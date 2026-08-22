@@ -14,6 +14,12 @@ import { useAuthStore } from "@/stores/auth";
 import { useCartStore } from "@/stores/cart";
 import { useDataStore } from "@/stores/data";
 import { buildDefaultCartItem } from "@/lib/cartHelpers";
+import {
+  getProductCanMake,
+  getRemainingPurchasable,
+  maxStockToastMessage,
+  unavailableStockToastMessage,
+} from "@/lib/cart/stockLimits";
 import { formatCurrency, greeting } from "@/lib/utils/format";
 import type { Category, Product, Promotion } from "@/types";
 
@@ -22,9 +28,11 @@ export default function HomePage() {
   const reduce = useReducedMotion();
   const user = useAuthStore((s) => s.user);
   const addItem = useCartStore((s) => s.addItem);
+  const cartItems = useCartStore((s) => s.items);
   const storeProducts = useDataStore((s) => s.products);
   const storeCategories = useDataStore((s) => s.categories);
   const storePromotions = useDataStore((s) => s.promotions);
+  const inventory = useDataStore((s) => s.inventory);
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
@@ -48,6 +56,15 @@ export default function HomePage() {
   }, [storeProducts, storeCategories, storePromotions]);
 
   const handleQuickAdd = (product: Product) => {
+    const remaining = getRemainingPurchasable(product, inventory, cartItems);
+    if (remaining < 1) {
+      toast.error(
+        getProductCanMake(product, inventory) > 0
+          ? maxStockToastMessage(product.name)
+          : unavailableStockToastMessage(product.name)
+      );
+      return;
+    }
     addItem(buildDefaultCartItem(product));
     toast.success(`${product.name} added to cart`);
   };

@@ -241,7 +241,17 @@ export default function AdminProductsPage() {
           .products.find((p) => p.id === editProduct.id);
         if (latest && isUuid(latest.id) && isUuid(latest.category_id)) {
           const sync = await syncProduct(latest);
-          if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
+          if (!sync.ok) {
+            toast.error(
+              sync.error ??
+                "Could not save product to the server. Recipes were not updated — try again."
+            );
+            return;
+          }
+          const { requestServerDataSync } = await import(
+            "@/services/dataSyncService"
+          );
+          requestServerDataSync();
         }
 
         toast.success(`"${trimmedName}" updated.`);
@@ -276,7 +286,17 @@ export default function AdminProductsPage() {
         .products.find((p) => p.id === created.id);
       if (latest && isUuid(latest.id) && isUuid(latest.category_id)) {
         const sync = await syncProduct(latest);
-        if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
+        if (!sync.ok) {
+          toast.error(
+            sync.error ??
+              "Could not save product to the server. Try again."
+          );
+          return;
+        }
+        const { requestServerDataSync } = await import(
+          "@/services/dataSyncService"
+        );
+        requestServerDataSync();
       }
 
       toast.success(`"${trimmedName}" added with ingredients.`);

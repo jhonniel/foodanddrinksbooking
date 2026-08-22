@@ -17,6 +17,11 @@ import {
 import { useCartTotals } from "@/hooks/useCartTotals";
 import { validatePromoCode } from "@/services/productService";
 import { formatCurrency } from "@/lib/utils/format";
+import {
+  getMaxQuantityForCartLine,
+  maxStockToastMessage,
+} from "@/lib/cart/stockLimits";
+import { useDataStore } from "@/stores/data";
 import { DELIVERY_CONFIG } from "@/data/demo";
 import {
   formatDeliveryRateLabel,
@@ -28,6 +33,8 @@ export default function CartPage() {
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const setPromo = useCartStore((s) => s.setPromo);
+  const products = useDataStore((s) => s.products);
+  const inventory = useDataStore((s) => s.inventory);
   const {
     items,
     promoCode,
@@ -64,6 +71,26 @@ export default function CartPage() {
   const handleRemovePromo = () => {
     setCodeInput("");
     setPromo(null, 0);
+  };
+
+  const handleIncreaseQuantity = (item: (typeof items)[number]) => {
+    const product = products.find((p) => p.id === item.productId);
+    if (!product) {
+      updateQuantity(item.id, item.quantity + 1);
+      return;
+    }
+
+    const maxForLine = getMaxQuantityForCartLine(
+      product,
+      inventory,
+      items,
+      item.id
+    );
+    if (item.quantity >= maxForLine) {
+      toast.error(maxStockToastMessage(item.productName));
+      return;
+    }
+    updateQuantity(item.id, item.quantity + 1);
   };
 
   if (items.length === 0) {
@@ -137,7 +164,7 @@ export default function CartPage() {
                   <button
                     type="button"
                     aria-label="Increase quantity"
-                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                    onClick={() => handleIncreaseQuantity(item)}
                     className="flex h-8 w-8 items-center justify-center rounded-lg text-navy"
                   >
                     <Plus className="h-3.5 w-3.5" />

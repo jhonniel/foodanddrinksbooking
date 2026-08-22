@@ -62,9 +62,19 @@ export async function syncProduct(product: Product): Promise<{
     return { ok: true };
   }
 
-  const recipes = (product.recipes ?? []).filter(
-    (r) => isUuid(r.id) && isUuid(r.inventory_item_id)
-  );
+  const recipes = (product.recipes ?? [])
+    .filter((r) => isUuid(r.inventory_item_id))
+    .map((r) => ({
+      ...r,
+      id:
+        isUuid(r.id) && r.id
+          ? r.id
+          : typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : r.id,
+      product_id: product.id,
+    }))
+    .filter((r) => isUuid(r.id));
 
   const res = await fetch("/api/catalog/products", {
     method: "PUT",

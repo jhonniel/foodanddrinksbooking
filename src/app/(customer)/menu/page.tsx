@@ -17,6 +17,12 @@ import { getCategories, getProducts, validatePromoCode } from "@/services/produc
 import { useCartStore } from "@/stores/cart";
 import { useDataStore } from "@/stores/data";
 import { buildDefaultCartItem } from "@/lib/cartHelpers";
+import {
+  getProductCanMake,
+  getRemainingPurchasable,
+  maxStockToastMessage,
+  unavailableStockToastMessage,
+} from "@/lib/cart/stockLimits";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Category, Product } from "@/types";
@@ -27,12 +33,14 @@ function MenuContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const addItem = useCartStore((s) => s.addItem);
+  const cartItems = useCartStore((s) => s.items);
   const promoCode = useCartStore((s) => s.promoCode);
   const promoDiscount = useCartStore((s) => s.promoDiscount);
   const cartSubtotal = useCartStore((s) => s.subtotal());
   const setPromo = useCartStore((s) => s.setPromo);
   const storeProducts = useDataStore((s) => s.products);
   const storeCategories = useDataStore((s) => s.categories);
+  const inventory = useDataStore((s) => s.inventory);
 
   const categoryParam = searchParams.get("category") ?? "";
   const sortParam = (searchParams.get("sort") as
@@ -98,6 +106,15 @@ function MenuContent() {
       router.push(`/menu/${product.slug}`);
       return;
     }
+    const remaining = getRemainingPurchasable(product, inventory, cartItems);
+    if (remaining < 1) {
+      toast.error(
+        getProductCanMake(product, inventory) > 0
+          ? maxStockToastMessage(product.name)
+          : unavailableStockToastMessage(product.name)
+      );
+      return;
+    }
     addItem(buildDefaultCartItem(product));
     toast.success(`${product.name} added to cart`);
   };
@@ -107,14 +124,62 @@ function MenuContent() {
     [categories, categoryParam]
   );
 
+  const productsByCategory = useMemo(() => {
+    if (categoryParam) return null;
+
+    const sortedCategories = [...categories].sort(
+      (a, b) => a.sort_order - b.sort_order
+    );
+    const groups: { category: Category; products: Product[] }[] = [];
+
+    for (const category of sortedCategories) {
+      const categoryProducts = products.filter(
+        (product) => product.category_id === category.id
+      );
+      if (categoryProducts.length > 0) {
+        groups.push({ category, products: categoryProducts });
+      }
+    }
+
+    const groupedIds = new Set(
+      groups.flatMap((group) => group.products.map((product) => product.id))
+    );
+    const uncategorized = products.filter(
+      (product) => !groupedIds.has(product.id)
+    );
+    if (uncategorized.length > 0) {
+      groups.push({
+        category: {
+          id: "uncategorized",
+          name: "Other",
+          slug: "other",
+          description: null,
+          image_url: null,
+          sort_order: 999,
+          is_active: true,
+          created_at: "",
+          updated_at: "",
+        },
+        products: uncategorized,
+      });
+    }
+
+    return groups;
+  }, [categoryParam, categories, products]);
+
+  const productGrid = (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+      {products.map((product) => (
+        <ProductCard key={product.id} product={product} onAdd={handleAdd} />
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-5 pb-4">
       <DeliveryLocationGate />
       <div>
         <h1 className="text-2xl font-bold text-navy">Menu</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Soda, coffee, matcha &amp; more · Delivery on Samal Island only
-        </p>
       </div>
 
       <div className="relative">
@@ -200,12 +265,25 @@ function MenuContent() {
             router.replace("/menu");
           }}
         />
-      ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {products.map((product) => (
-            <ProductCard key={product.id} product={product} onAdd={handleAdd} />
+      ) : productsByCategory ? (
+        <div className="space-y-8">
+          {productsByCategory.map(({ category, products: categoryProducts }) => (
+            <section key={category.id}>
+              <h2 className="mb-3 text-lg font-bold text-navy">{category.name}</h2>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+                {categoryProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onAdd={handleAdd}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
+      ) : (
+        productGrid
       )}
     </div>
   );

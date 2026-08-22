@@ -7,6 +7,10 @@ import { Minus, Plus, Star } from "lucide-react";
 import { toast } from "sonner";
 import { getProductBySlug } from "@/services/productService";
 import { isProductOrderable } from "@/lib/inventory/availability";
+import {
+  getRemainingPurchasable,
+  maxStockToastMessage,
+} from "@/lib/cart/stockLimits";
 import { useCartStore } from "@/stores/cart";
 import { useDataStore } from "@/stores/data";
 import { Button } from "@/components/ui/button";
@@ -68,6 +72,7 @@ export default function ProductDetailPage() {
   const router = useRouter();
   const slug = params.slug as string;
   const addItem = useCartStore((s) => s.addItem);
+  const cartItems = useCartStore((s) => s.items);
   const inventory = useDataStore((s) => s.inventory);
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -136,6 +141,24 @@ export default function ProductDetailPage() {
   const orderable = product
     ? isProductOrderable(product, inventory)
     : false;
+  const remainingPurchasable = product
+    ? getRemainingPurchasable(product, inventory, cartItems)
+    : 0;
+
+  useEffect(() => {
+    if (remainingPurchasable > 0 && quantity > remainingPurchasable) {
+      setQuantity(remainingPurchasable);
+    }
+  }, [remainingPurchasable, quantity]);
+
+  const handleIncreaseQuantity = () => {
+    if (!product) return;
+    if (quantity >= remainingPurchasable) {
+      toast.error(maxStockToastMessage(product.name));
+      return;
+    }
+    setQuantity((q) => q + 1);
+  };
 
   const toggleAddon = (addon: ProductAddon, checked: boolean) => {
     setSelectedAddons((prev) => {
@@ -148,6 +171,10 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!product || !orderable) return;
+    if (quantity > remainingPurchasable) {
+      toast.error(maxStockToastMessage(product.name));
+      return;
+    }
     addItem({
       productId: product.id,
       productName: product.name,
@@ -278,8 +305,9 @@ export default function ProductDetailPage() {
             <button
               type="button"
               aria-label="Increase quantity"
-              onClick={() => setQuantity((q) => q + 1)}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-navy transition hover:bg-muted/80"
+              onClick={handleIncreaseQuantity}
+              disabled={remainingPurchasable <= 0 || quantity >= remainingPurchasable}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-navy transition hover:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Plus className="h-4 w-4" />
             </button>

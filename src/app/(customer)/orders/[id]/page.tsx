@@ -21,9 +21,11 @@ import { useDataStore } from "@/stores/data";
 import { MapEmbed } from "@/components/shared/MapEmbed";
 import {
   canReorderItems,
+  getInsufficientStockReorderItems,
   getUnavailableReorderItems,
   orderItemToCartItem,
 } from "@/lib/orders/reorder";
+import { maxStockToastMessage } from "@/lib/cart/stockLimits";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { customerCanCancelOrder } from "@/lib/constants";
 
@@ -37,6 +39,7 @@ export default function OrderDetailPage() {
   const setOrders = useAppStore((s) => s.setOrders);
   const user = useAuthStore((s) => s.user);
   const addItem = useCartStore((s) => s.addItem);
+  const cartItems = useCartStore((s) => s.items);
   const products = useDataStore((s) => s.products);
   const inventory = useDataStore((s) => s.inventory);
   const [cancelling, setCancelling] = useState(false);
@@ -63,9 +66,9 @@ export default function OrderDetailPage() {
   const reorderAvailable = useMemo(
     () =>
       order?.items?.length
-        ? canReorderItems(order.items, products, inventory)
+        ? canReorderItems(order.items, products, inventory, cartItems)
         : false,
-    [order?.items, products, inventory]
+    [order?.items, products, inventory, cartItems]
   );
 
   const handleReorder = () => {
@@ -81,6 +84,23 @@ export default function OrderDetailPage() {
         unavailable.length === 1
           ? `${unavailable[0]} is no longer available and cannot be reordered.`
           : `Some items are no longer available: ${unavailable.join(", ")}.`
+      );
+      return;
+    }
+
+    const insufficient = getInsufficientStockReorderItems(
+      order.items,
+      products,
+      inventory,
+      cartItems
+    );
+    if (insufficient.length > 0) {
+      const name = insufficient[0];
+      const product = products.find((p) => p.name === name);
+      toast.error(
+        product
+          ? maxStockToastMessage(name)
+          : `Not enough stock for ${name} to complete this reorder.`
       );
       return;
     }
