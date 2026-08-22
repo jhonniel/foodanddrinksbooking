@@ -29,6 +29,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { applyInventoryAvailabilityRules } from "@/services/inventoryService";
+import {
+  computeCostPerUnit,
+  formatCostPerUnit,
+  formatStockValue,
+  inventoryStockValue,
+  totalInventoryStockValue,
+} from "@/lib/inventory/cost";
 import { cn } from "@/lib/utils";
 import type { InventoryItem } from "@/types";
 
@@ -53,8 +60,35 @@ export default function AdminInventoryPage() {
   const [unit, setUnit] = useState<string>("pcs");
   const [currentQty, setCurrentQty] = useState("");
   const [minimumStock, setMinimumStock] = useState("");
+  const [totalPurchaseCost, setTotalPurchaseCost] = useState("");
   const [costPerUnit, setCostPerUnit] = useState("");
   const [supplier, setSupplier] = useState("");
+
+  const parsedCurrentQty = parseFloat(currentQty);
+  const parsedTotalCost = totalPurchaseCost ? parseFloat(totalPurchaseCost) : NaN;
+  const parsedCostPerUnit = costPerUnit ? parseFloat(costPerUnit) : NaN;
+
+  const computedCostPerUnit = useMemo(() => {
+    if (!totalPurchaseCost || isNaN(parsedTotalCost) || parsedTotalCost < 0) {
+      return null;
+    }
+    return computeCostPerUnit(parsedTotalCost, parsedCurrentQty);
+  }, [totalPurchaseCost, parsedTotalCost, parsedCurrentQty]);
+
+  const addFormCostPreview = useMemo(() => {
+    const unitCost =
+      computedCostPerUnit ??
+      (!isNaN(parsedCostPerUnit) && parsedCostPerUnit >= 0
+        ? parsedCostPerUnit
+        : null);
+    if (unitCost == null || unitCost <= 0) return null;
+    return formatCostPerUnit(unitCost, unit);
+  }, [computedCostPerUnit, parsedCostPerUnit, unit]);
+
+  const inventoryTotalValue = useMemo(
+    () => totalInventoryStockValue(inventory),
+    [inventory]
+  );
 
   const isLow = (item: InventoryItem) =>
     item.current_quantity < item.minimum_stock;
@@ -69,8 +103,50 @@ export default function AdminInventoryPage() {
     setUnit("pcs");
     setCurrentQty("");
     setMinimumStock("");
+    setTotalPurchaseCost("");
     setCostPerUnit("");
     setSupplier("");
+  };
+
+  const handleTotalCostChange = (value: string) => {
+    setTotalPurchaseCost(value);
+    const total = parseFloat(value);
+    const qty = parseFloat(currentQty);
+    if (!value || isNaN(total) || total < 0 || isNaN(qty) || qty <= 0) return;
+    const perUnit = computeCostPerUnit(total, qty);
+    if (perUnit != null) {
+      setCostPerUnit(String(Number(perUnit.toFixed(4))));
+    }
+  };
+
+  const handleCurrentQtyChange = (value: string) => {
+    setCurrentQty(value);
+    const qty = parseFloat(value);
+    const total = parseFloat(totalPurchaseCost);
+    if (
+      !totalPurchaseCost ||
+      isNaN(total) ||
+      total < 0 ||
+      isNaN(qty) ||
+      qty <= 0
+    ) {
+      return;
+    }
+    const perUnit = computeCostPerUnit(total, qty);
+    if (perUnit != null) {
+      setCostPerUnit(String(Number(perUnit.toFixed(4))));
+    }
+  };
+
+  const handleCostPerUnitChange = (value: string) => {
+    setCostPerUnit(value);
+    const perUnit = parseFloat(value);
+    const qty = parseFloat(currentQty);
+    if (!value || isNaN(perUnit) || perUnit < 0 || isNaN(qty) || qty <= 0) {
+      setTotalPurchaseCost("");
+      return;
+    }
+    setTotalPurchaseCost((perUnit * qty).toFixed(2));
   };
 
   const handleAddOpenChange = (open: boolean) => {
@@ -82,7 +158,9 @@ export default function AdminInventoryPage() {
     const trimmedName = name.trim();
     const qty = parseFloat(currentQty);
     const min = parseFloat(minimumStock);
-    const cost = costPerUnit ? parseFloat(costPerUnit) : undefined;
+    const cost =
+      computedCostPerUnit ??
+      (costPerUnit ? parseFloat(costPerUnit) : undefined);
 
     if (!trimmedName) {
       toast.error("Item name is required.");
@@ -224,8 +302,13 @@ export default function AdminInventoryPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy">Inventory</h1>
           <p className="text-sm text-muted-foreground">
-            Track stock levels and restock supplies
+            Track stock levels, unit costs, and total stock value
           </p>
+          {inventory.length > 0 && inventoryTotalValue > 0 && (
+            <p className="mt-1 text-sm font-medium text-navy">
+              Total stock value: {formatCurrency(inventoryTotalValue)}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {lowCount > 0 && (
@@ -278,7 +361,7 @@ export default function AdminInventoryPage() {
                       type="number"
                       min="0"
                       value={currentQty}
-                      onChange={(e) => setCurrentQty(e.target.value)}
+                      onChange={(e) => handleCurrentQtyChange(e.target.value)}
                     />
                   </div>
                   <div>
@@ -293,15 +376,44 @@ export default function AdminInventoryPage() {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="inv-cost">Cost per Unit (₱)</Label>
+                  <Label htmlFor="inv-total-cost">Total purchase cost (₱)</Label>
+                  <Input
+                    id="inv-total-cost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={totalPurchaseCost}
+                    onChange={(e) => handleTotalCostChange(e.target.value)}
+                    placeholder="e.g. 500 for the whole batch"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Enter what you paid for this quantity — cost per {unit} is
+                    calculated automatically.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="inv-cost">Cost per {unit} (₱)</Label>
                   <Input
                     id="inv-cost"
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="0.0001"
                     value={costPerUnit}
-                    onChange={(e) => setCostPerUnit(e.target.value)}
+                    onChange={(e) => handleCostPerUnitChange(e.target.value)}
+                    placeholder="Auto-calculated from total ÷ qty"
                   />
+                  {addFormCostPreview && (
+                    <p className="mt-1 text-xs font-medium text-green">
+                      {addFormCostPreview}
+                      {parsedCurrentQty > 0 &&
+                      !isNaN(parseFloat(costPerUnit)) &&
+                      parseFloat(costPerUnit) > 0
+                        ? ` · Stock value ${formatCurrency(
+                            parsedCurrentQty * parseFloat(costPerUnit)
+                          )}`
+                        : null}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="inv-supplier">Supplier</Label>
@@ -432,7 +544,7 @@ export default function AdminInventoryPage() {
                   </Button>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
                 <div className="rounded-lg bg-white/80 p-2">
                   <p className="text-muted-foreground">Current</p>
                   <p
@@ -455,9 +567,15 @@ export default function AdminInventoryPage() {
                   </p>
                 </div>
                 <div className="rounded-lg bg-white/80 p-2">
-                  <p className="text-muted-foreground">Cost</p>
+                  <p className="text-muted-foreground">Cost/{item.unit}</p>
                   <p className="font-semibold text-navy">
-                    {formatCurrency(item.cost_per_unit)}
+                    {formatCostPerUnit(item.cost_per_unit, item.unit)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-white/80 p-2">
+                  <p className="text-muted-foreground">Stock value</p>
+                  <p className="font-semibold text-navy">
+                    {formatStockValue(item)}
                   </p>
                 </div>
               </div>
@@ -475,7 +593,8 @@ export default function AdminInventoryPage() {
                 <th className="px-5 py-3 font-medium">Current</th>
                 <th className="px-5 py-3 font-medium">Minimum</th>
                 <th className="px-5 py-3 font-medium">Unit</th>
-                <th className="px-5 py-3 font-medium">Cost/Unit</th>
+                <th className="px-5 py-3 font-medium">Cost / Unit</th>
+                <th className="px-5 py-3 font-medium">Stock Value</th>
                 <th className="px-5 py-3 font-medium">Supplier</th>
                 <th className="px-5 py-3 font-medium">Last Restocked</th>
                 <th className="px-5 py-3 font-medium">Actions</th>
@@ -522,7 +641,10 @@ export default function AdminInventoryPage() {
                   </td>
                   <td className="px-5 py-3">{item.unit}</td>
                   <td className="px-5 py-3">
-                    {formatCurrency(item.cost_per_unit)}
+                    {formatCostPerUnit(item.cost_per_unit, item.unit)}
+                  </td>
+                  <td className="px-5 py-3 font-medium text-navy">
+                    {formatStockValue(item)}
                   </td>
                   <td className="px-5 py-3 text-muted-foreground">
                     {item.supplier ?? "—"}
@@ -589,6 +711,34 @@ export default function AdminInventoryPage() {
             <p className="text-sm text-muted-foreground">
               Minimum stock: {adjustItem?.minimum_stock} {adjustItem?.unit}
             </p>
+            {adjustItem && adjustItem.cost_per_unit > 0 && (
+              <div className="rounded-xl bg-surface px-3 py-2 text-sm">
+                <p className="text-muted-foreground">
+                  Cost per {adjustItem.unit}:{" "}
+                  <span className="font-medium text-navy">
+                    {formatCostPerUnit(
+                      adjustItem.cost_per_unit,
+                      adjustItem.unit
+                    )}
+                  </span>
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Stock value after update:{" "}
+                  <span className="font-medium text-navy">
+                    {(() => {
+                      const qty = parseFloat(adjustQty);
+                      if (isNaN(qty) || qty < 0) return "—";
+                      return formatCurrency(
+                        inventoryStockValue({
+                          current_quantity: qty,
+                          cost_per_unit: adjustItem.cost_per_unit,
+                        })
+                      );
+                    })()}
+                  </span>
+                </p>
+              </div>
+            )}
             <Button
               className="w-full bg-green hover:bg-green/90"
               onClick={() => void handleAdjust()}
