@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Package, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
 import {
@@ -34,7 +34,6 @@ import {
   computeCostPerUnit,
   formatCostPerUnit,
   formatStockValue,
-  inventoryStockValue,
   totalInventoryStockValue,
 } from "@/lib/inventory/cost";
 import { cn } from "@/lib/utils";
@@ -46,15 +45,13 @@ export default function AdminInventoryPage() {
   const inventory = useDataStore((s) => s.inventory);
   const products = useDataStore((s) => s.products);
   const prependInventoryItem = useDataStore((s) => s.prependInventoryItem);
-  const adjustInventory = useDataStore((s) => s.adjustInventory);
+  const updateInventoryItem = useDataStore((s) => s.updateInventoryItem);
   const deleteInventoryItem = useDataStore((s) => s.deleteInventoryItem);
 
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
+  const [formDialogOpen, setFormDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<InventoryItem | null>(null);
-  const [adjustQty, setAdjustQty] = useState("");
   const [saving, setSaving] = useState(false);
-  const [adjusting, setAdjusting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [name, setName] = useState("");
@@ -99,7 +96,7 @@ export default function AdminInventoryPage() {
 
   const lowCount = inventory.filter(isLow).length;
 
-  const resetAddForm = () => {
+  const resetForm = () => {
     setName("");
     setUnit("pcs");
     setCurrentQty("");
@@ -107,6 +104,37 @@ export default function AdminInventoryPage() {
     setTotalPurchaseCost("");
     setCostPerUnit("");
     setSupplier("");
+    setEditingItem(null);
+  };
+
+  const openAddDialog = () => {
+    resetForm();
+    setFormDialogOpen(true);
+  };
+
+  const openEditDialog = (item: InventoryItem) => {
+    setEditingItem(item);
+    setName(item.name);
+    setUnit(item.unit);
+    setCurrentQty(String(item.current_quantity));
+    setMinimumStock(String(item.minimum_stock));
+    setCostPerUnit(
+      item.cost_per_unit > 0
+        ? String(Number(item.cost_per_unit.toFixed(4)))
+        : ""
+    );
+    setTotalPurchaseCost(
+      item.cost_per_unit > 0 && item.current_quantity > 0
+        ? (item.cost_per_unit * item.current_quantity).toFixed(2)
+        : ""
+    );
+    setSupplier(item.supplier ?? "");
+    setFormDialogOpen(true);
+  };
+
+  const handleFormOpenChange = (open: boolean) => {
+    setFormDialogOpen(open);
+    if (!open) resetForm();
   };
 
   const handleTotalCostChange = (value: string) => {
@@ -150,12 +178,7 @@ export default function AdminInventoryPage() {
     setTotalPurchaseCost((perUnit * qty).toFixed(2));
   };
 
-  const handleAddOpenChange = (open: boolean) => {
-    setAddDialogOpen(open);
-    if (!open) resetAddForm();
-  };
-
-  const handleAddItem = async () => {
+  const handleSaveItem = async () => {
     const trimmedName = name.trim();
     const qty = parseFloat(currentQty);
     const min = parseFloat(minimumStock);
@@ -182,13 +205,16 @@ export default function AdminInventoryPage() {
 
     setSaving(true);
     try {
+      const previousQty = editingItem?.current_quantity;
       const result = await saveInventoryRemote({
+        id: editingItem?.id,
         name: trimmedName,
         unit,
         currentQuantity: qty,
         minimumStock: min,
         costPerUnit: cost,
         supplier: supplier.trim() || null,
+        sku: editingItem?.sku ?? null,
       });
 
       if (result.error || !result.item) {
@@ -196,62 +222,38 @@ export default function AdminInventoryPage() {
         return;
       }
 
-      prependInventoryItem(result.item);
-      toast.success(`"${trimmedName}" added to inventory.`);
-      setAddDialogOpen(false);
-      resetAddForm();
+      if (editingItem) {
+        updateInventoryItem(result.item.id, result.item);
+        toast.success(`"${trimmedName}" updated.`);
+      } else {
+        prependInventoryItem(result.item);
+        toast.success(`"${trimmedName}" added to inventory.`);
+      }
+
+      const { requestServerDataSync } = await import(
+        "@/services/dataSyncService"
+      );
+      requestServerDataSync();
+
+      if (
+        previousQty == null ||
+        previousQty !== qty ||
+        editingItem?.minimum_stock !== min
+      ) {
+        void applyInventoryAvailabilityRules().then((flipped) => {
+          if (flipped.length > 0) {
+            toast.warning(
+              `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable (ingredient out of stock).`
+            );
+          }
+        });
+      }
+
+      setFormDialogOpen(false);
+      resetForm();
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleAdjust = async () => {
-    if (!adjustItem) return;
-    const qty = parseFloat(adjustQty);
-    if (isNaN(qty) || qty < 0) {
-      toast.error("Enter a valid quantity.");
-      return;
-    }
-
-    setAdjusting(true);
-    try {
-      const result = await saveInventoryRemote({
-        id: adjustItem.id,
-        name: adjustItem.name,
-        unit: adjustItem.unit,
-        currentQuantity: qty,
-        minimumStock: adjustItem.minimum_stock,
-        costPerUnit: adjustItem.cost_per_unit,
-        supplier: adjustItem.supplier,
-        sku: adjustItem.sku,
-      });
-
-      if (result.error || !result.item) {
-        toast.error(result.error || "Could not update stock.");
-        return;
-      }
-
-      adjustInventory(adjustItem.id, qty);
-      void applyInventoryAvailabilityRules().then((flipped) => {
-        if (flipped.length > 0) {
-          toast.warning(
-            `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable (ingredient out of stock).`
-          );
-        }
-      });
-      toast.success(
-        `Stock for "${adjustItem.name}" updated to ${qty} ${adjustItem.unit}.`
-      );
-      setAdjustItem(null);
-      setAdjustQty("");
-    } finally {
-      setAdjusting(false);
-    }
-  };
-
-  const openAdjustDialog = (item: InventoryItem) => {
-    setAdjustItem(item);
-    setAdjustQty(String(item.current_quantity));
   };
 
   const linkedProducts = useMemo(() => {
@@ -318,19 +320,27 @@ export default function AdminInventoryPage() {
               {lowCount} item{lowCount > 1 ? "s" : ""} below minimum stock
             </div>
           )}
-          <Dialog open={addDialogOpen} onOpenChange={handleAddOpenChange}>
+          <Dialog open={formDialogOpen} onOpenChange={handleFormOpenChange}>
             <DialogTrigger
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-green px-2.5 text-sm font-medium text-white hover:bg-green/90"
+              onClick={openAddDialog}
             >
               <Plus className="h-4 w-4" />
               Add Item
             </DialogTrigger>
             <DialogContent scrollable className="sm:max-w-md">
               <DialogStickyHeader>
-                <DialogTitle>Add Inventory Item</DialogTitle>
+                <DialogTitle>
+                  {editingItem ? "Edit Inventory Item" : "Add Inventory Item"}
+                </DialogTitle>
               </DialogStickyHeader>
               <DialogScrollBody>
               <div className="space-y-4">
+                {editingItem?.sku && (
+                  <p className="text-xs text-muted-foreground">
+                    SKU: {editingItem.sku}
+                  </p>
+                )}
                 <div>
                   <Label htmlFor="inv-name">Name *</Label>
                   <Input
@@ -431,10 +441,14 @@ export default function AdminInventoryPage() {
               <DialogStickyFooter>
                 <Button
                   className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[120px]"
-                  onClick={() => void handleAddItem()}
+                  onClick={() => void handleSaveItem()}
                   disabled={saving}
                 >
-                  {saving ? "Saving…" : "Save Item"}
+                  {saving
+                    ? "Saving…"
+                    : editingItem
+                      ? "Save Changes"
+                      : "Save Item"}
                 </Button>
               </DialogStickyFooter>
             </DialogContent>
@@ -536,9 +550,10 @@ export default function AdminInventoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => openAdjustDialog(item)}
+                    onClick={() => openEditDialog(item)}
                   >
-                    Adjust
+                    <Pencil className="mr-1 h-3.5 w-3.5" />
+                    Edit
                   </Button>
                   <Button
                     size="sm"
@@ -664,9 +679,10 @@ export default function AdminInventoryPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => openAdjustDialog(item)}
+                        onClick={() => openEditDialog(item)}
                       >
-                        Adjust
+                        <Pencil className="mr-1 h-3.5 w-3.5" />
+                        Edit
                       </Button>
                       <Button
                         size="sm"
@@ -686,80 +702,6 @@ export default function AdminInventoryPage() {
         </div>
       </div>
 
-      <Dialog
-        open={!!adjustItem}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAdjustItem(null);
-            setAdjustQty("");
-          }
-        }}
-      >
-        <DialogContent scrollable className="sm:max-w-md">
-          <DialogStickyHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5 text-sky" />
-              Adjust Stock — {adjustItem?.name}
-            </DialogTitle>
-          </DialogStickyHeader>
-          <DialogScrollBody>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="qty">
-                New Quantity ({adjustItem?.unit}) *
-              </Label>
-              <Input
-                id="qty"
-                type="number"
-                min="0"
-                value={adjustQty}
-                onChange={(e) => setAdjustQty(e.target.value)}
-              />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Minimum stock: {adjustItem?.minimum_stock} {adjustItem?.unit}
-            </p>
-            {adjustItem && adjustItem.cost_per_unit > 0 && (
-              <div className="rounded-xl bg-surface px-3 py-2 text-sm">
-                <p className="text-muted-foreground">
-                  Cost per {adjustItem.unit}:{" "}
-                  <span className="font-medium text-navy">
-                    {formatCostPerUnit(
-                      adjustItem.cost_per_unit,
-                      adjustItem.unit
-                    )}
-                  </span>
-                </p>
-                <p className="mt-1 text-muted-foreground">
-                  Stock value after update:{" "}
-                  <span className="font-medium text-navy">
-                    {(() => {
-                      const qty = parseFloat(adjustQty);
-                      if (isNaN(qty) || qty < 0) return "—";
-                      return formatCurrency(
-                        inventoryStockValue({
-                          current_quantity: qty,
-                          cost_per_unit: adjustItem.cost_per_unit,
-                        })
-                      );
-                    })()}
-                  </span>
-                </p>
-              </div>
-            )}
-          </div>
-          </DialogScrollBody>
-          <DialogStickyFooter>
-            <Button
-              className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
-              onClick={() => void handleAdjust()}
-              disabled={adjusting}
-            >
-              {adjusting ? "Saving…" : "Update Stock"}
-            </Button>
-          </DialogStickyFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
