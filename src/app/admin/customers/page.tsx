@@ -26,7 +26,9 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -267,11 +269,12 @@ export default function AdminCustomersPage() {
               <Plus className="h-4 w-4" />
               Add Customer
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
+            <DialogContent scrollable className="sm:max-w-md">
+              <DialogStickyHeader>
                 <DialogTitle>Add Customer</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-2">
+              </DialogStickyHeader>
+              <DialogScrollBody>
+              <div className="space-y-4">
                 <div>
                   <Label htmlFor="cust-name">Full Name *</Label>
                   <Input
@@ -304,14 +307,17 @@ export default function AdminCustomersPage() {
                   Saves to Supabase Auth + profiles. A temporary password is
                   generated if you do not set one.
                 </p>
+              </div>
+              </DialogScrollBody>
+              <DialogStickyFooter>
                 <Button
-                  className="w-full bg-green hover:bg-green/90"
+                  className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                   onClick={() => void handleAddCustomer()}
                   disabled={saving}
                 >
                   {saving ? "Saving…" : "Save Customer"}
                 </Button>
-              </div>
+              </DialogStickyFooter>
             </DialogContent>
           </Dialog>
         </div>

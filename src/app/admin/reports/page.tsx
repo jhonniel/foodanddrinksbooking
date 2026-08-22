@@ -51,8 +51,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -186,9 +187,11 @@ export default function AdminReportsPage() {
           if (!open && !deleting) setDeleteTarget(null);
         }}
       >
-        <DialogContent className="sm:max-w-md" showCloseButton={false}>
-          <DialogHeader>
+        <DialogContent scrollable className="sm:max-w-md" showCloseButton={false}>
+          <DialogStickyHeader>
             <DialogTitle>Delete expense?</DialogTitle>
+          </DialogStickyHeader>
+          <DialogScrollBody className="py-2">
             <DialogDescription>
               {deleteTarget ? (
                 <>
@@ -201,8 +204,8 @@ export default function AdminReportsPage() {
                 </>
               ) : null}
             </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+          </DialogScrollBody>
+          <DialogStickyFooter>
             <Button
               type="button"
               variant="outline"
@@ -219,7 +222,7 @@ export default function AdminReportsPage() {
             >
               {deleting ? "Deleting…" : "Delete expense"}
             </Button>
-          </DialogFooter>
+          </DialogStickyFooter>
         </DialogContent>
       </Dialog>
 
@@ -353,11 +356,12 @@ export default function AdminReportsPage() {
               <Plus className="mr-0 h-4 w-4" />
               Add expense
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
+            <DialogContent scrollable className="sm:max-w-md">
+              <DialogStickyHeader>
                 <DialogTitle>Add expense</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 pt-2">
+              </DialogStickyHeader>
+              <DialogScrollBody>
+              <div className="space-y-3">
                 <div>
                   <Label htmlFor="exp-title">Title *</Label>
                   <Input
@@ -375,7 +379,7 @@ export default function AdminReportsPage() {
                       v && setCategory(v as ExpenseCategory)
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -408,14 +412,17 @@ export default function AdminReportsPage() {
                     onChange={(e) => setNotes(e.target.value)}
                   />
                 </div>
+              </div>
+              </DialogScrollBody>
+              <DialogStickyFooter>
                 <Button
-                  className="w-full bg-green hover:bg-green/90"
+                  className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                   onClick={() => void handleAddExpense()}
                   disabled={saving}
                 >
                   {saving ? "Saving…" : "Save expense"}
                 </Button>
-              </div>
+              </DialogStickyFooter>
             </DialogContent>
           </Dialog>
         </div>

@@ -27,7 +27,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogDescription,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -36,7 +39,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import type { Product } from "@/types";
 
@@ -367,13 +369,14 @@ export default function AdminProductsPage() {
             <Plus className="h-4 w-4" />
             Add Product
           </DialogTrigger>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-            <DialogHeader>
+          <DialogContent scrollable className="sm:max-w-lg">
+            <DialogStickyHeader>
               <DialogTitle>
                 {isEditMode ? "Edit Product" : "Add Product"}
               </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
+            </DialogStickyHeader>
+            <DialogScrollBody>
+            <div className="space-y-4">
               <div>
                 <Label htmlFor="name">Name *</Label>
                 <Input
@@ -411,8 +414,12 @@ export default function AdminProductsPage() {
                   value={categoryId}
                   onValueChange={(v) => v && setCategoryId(v)}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
+                  <SelectTrigger className="w-full max-w-full">
+                    <span className="truncate">
+                      {categoryId
+                        ? getCategoryName(categoryId)
+                        : "Select category"}
+                    </span>
                   </SelectTrigger>
                   <SelectContent>
                     {activeCategories.map((c) => (
@@ -427,12 +434,12 @@ export default function AdminProductsPage() {
               <div className="space-y-2">
                 <Label>Product image</Label>
                 {previewUrl && (
-                  <div className="relative aspect-video overflow-hidden rounded-xl bg-light-blue">
+                  <div className="relative max-h-36 overflow-hidden rounded-xl bg-light-blue">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={previewUrl}
                       alt="Preview"
-                      className="h-full w-full object-cover"
+                      className="h-full max-h-36 w-full object-cover"
                     />
                   </div>
                 )}
@@ -501,16 +508,21 @@ export default function AdminProductsPage() {
                 {recipes.map((row, index) => (
                   <div
                     key={index}
-                    className="grid gap-2 rounded-lg bg-muted/40 p-2 sm:grid-cols-[1fr_100px_auto]"
+                    className="space-y-2 rounded-lg bg-muted/40 p-2"
                   >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Select
                       value={row.inventoryItemId}
                       onValueChange={(v) =>
                         v && updateRecipe(index, { inventoryItemId: v })
                       }
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Inventory item" />
+                      <SelectTrigger className="w-full min-w-0 flex-1 max-w-full sm:flex-1">
+                        <span className="truncate">
+                          {row.inventoryItemId
+                            ? `${getInventoryName(row.inventoryItemId)} (${getInventoryUnit(row.inventoryItemId)})`
+                            : "Inventory item"}
+                        </span>
                       </SelectTrigger>
                       <SelectContent>
                         {inventory.map((item) => (
@@ -520,11 +532,13 @@ export default function AdminProductsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <div className="flex gap-2 sm:shrink-0">
                     <Input
                       type="number"
                       min="0"
                       step="any"
                       placeholder="Qty"
+                      className="w-full sm:w-24"
                       value={row.quantityRequired}
                       onChange={(e) =>
                         updateRecipe(index, {
@@ -536,7 +550,7 @@ export default function AdminProductsPage() {
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="text-destructive"
+                      className="shrink-0 text-destructive"
                       disabled={recipes.length <= 1}
                       onClick={() =>
                         setRecipes((rows) =>
@@ -546,8 +560,10 @@ export default function AdminProductsPage() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
+                    </div>
+                    </div>
                     {row.inventoryItemId && (
-                      <p className="text-[11px] text-muted-foreground sm:col-span-3">
+                      <p className="text-[11px] text-muted-foreground">
                         Per drink: {row.quantityRequired || "0"}{" "}
                         {getInventoryUnit(row.inventoryItemId)} of{" "}
                         {getInventoryName(row.inventoryItemId)}
@@ -556,9 +572,11 @@ export default function AdminProductsPage() {
                   </div>
                 ))}
               </div>
-
+            </div>
+            </DialogScrollBody>
+            <DialogStickyFooter>
               <Button
-                className="w-full bg-green hover:bg-green/90"
+                className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                 onClick={() => void handleSave()}
                 disabled={saving}
               >
@@ -568,7 +586,7 @@ export default function AdminProductsPage() {
                     ? "Save Changes"
                     : "Save Product"}
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </div>

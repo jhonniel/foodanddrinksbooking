@@ -16,8 +16,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -324,11 +325,12 @@ export default function AdminInventoryPage() {
               <Plus className="h-4 w-4" />
               Add Item
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
+            <DialogContent scrollable className="sm:max-w-md">
+              <DialogStickyHeader>
                 <DialogTitle>Add Inventory Item</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-2">
+              </DialogStickyHeader>
+              <DialogScrollBody>
+              <div className="space-y-4">
                 <div>
                   <Label htmlFor="inv-name">Name *</Label>
                   <Input
@@ -341,7 +343,7 @@ export default function AdminInventoryPage() {
                 <div>
                   <Label>Unit *</Label>
                   <Select value={unit} onValueChange={(v) => v && setUnit(v)}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -424,14 +426,17 @@ export default function AdminInventoryPage() {
                     placeholder="Island Fresh Co."
                   />
                 </div>
+              </div>
+              </DialogScrollBody>
+              <DialogStickyFooter>
                 <Button
-                  className="w-full bg-green hover:bg-green/90"
+                  className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[120px]"
                   onClick={() => void handleAddItem()}
                   disabled={saving}
                 >
                   {saving ? "Saving…" : "Save Item"}
                 </Button>
-              </div>
+              </DialogStickyFooter>
             </DialogContent>
           </Dialog>
         </div>
@@ -443,9 +448,11 @@ export default function AdminInventoryPage() {
           if (!open && !deleting) setDeleteTarget(null);
         }}
       >
-        <DialogContent className="sm:max-w-md" showCloseButton={false}>
-          <DialogHeader>
+        <DialogContent scrollable className="sm:max-w-md" showCloseButton={false}>
+          <DialogStickyHeader>
             <DialogTitle>Delete inventory item?</DialogTitle>
+          </DialogStickyHeader>
+          <DialogScrollBody className="py-2">
             <DialogDescription>
               {deleteTarget ? (
                 linkedProducts.length > 0 ? (
@@ -473,8 +480,8 @@ export default function AdminInventoryPage() {
                 )
               ) : null}
             </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+          </DialogScrollBody>
+          <DialogStickyFooter>
             <Button
               type="button"
               variant="outline"
@@ -491,7 +498,7 @@ export default function AdminInventoryPage() {
             >
               {deleting ? "Deleting…" : "Delete item"}
             </Button>
-          </DialogFooter>
+          </DialogStickyFooter>
         </DialogContent>
       </Dialog>
 
@@ -688,14 +695,15 @@ export default function AdminInventoryPage() {
           }
         }}
       >
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent scrollable className="sm:max-w-md">
+          <DialogStickyHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5 text-sky" />
               Adjust Stock — {adjustItem?.name}
             </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
+          </DialogStickyHeader>
+          <DialogScrollBody>
+          <div className="space-y-4">
             <div>
               <Label htmlFor="qty">
                 New Quantity ({adjustItem?.unit}) *
@@ -739,14 +747,17 @@ export default function AdminInventoryPage() {
                 </p>
               </div>
             )}
+          </div>
+          </DialogScrollBody>
+          <DialogStickyFooter>
             <Button
-              className="w-full bg-green hover:bg-green/90"
+              className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
               onClick={() => void handleAdjust()}
               disabled={adjusting}
             >
               {adjusting ? "Saving…" : "Update Stock"}
             </Button>
-          </div>
+          </DialogStickyFooter>
         </DialogContent>
       </Dialog>
     </div>

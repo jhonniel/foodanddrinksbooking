@@ -18,7 +18,9 @@ import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -175,11 +177,12 @@ export default function AdminDriversPage() {
             <Plus className="h-4 w-4" />
             Add Driver
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
+          <DialogContent scrollable className="sm:max-w-md">
+            <DialogStickyHeader>
               <DialogTitle>Add Driver</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
+            </DialogStickyHeader>
+            <DialogScrollBody>
+            <div className="space-y-4">
               <div>
                 <Label htmlFor="driver-name">Full Name *</Label>
                 <Input
@@ -224,7 +227,7 @@ export default function AdminDriversPage() {
                   value={vehicleType}
                   onValueChange={(v) => v && setVehicleType(v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -245,14 +248,17 @@ export default function AdminDriversPage() {
                   placeholder="ABC-1234"
                 />
               </div>
+            </div>
+            </DialogScrollBody>
+            <DialogStickyFooter>
               <Button
-                className="w-full bg-green hover:bg-green/90"
+                className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[160px]"
                 onClick={() => void handleAddDriver()}
                 disabled={saving}
               >
                 {saving ? "Creating account..." : "Create driver account"}
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </div>

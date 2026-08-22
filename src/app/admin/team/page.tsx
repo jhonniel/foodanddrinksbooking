@@ -11,7 +11,9 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -117,11 +119,12 @@ export default function AdminTeamPage() {
             <ShieldPlus className="h-4 w-4" />
             Add staff
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
+          <DialogContent scrollable className="sm:max-w-md">
+            <DialogStickyHeader>
               <DialogTitle>Create staff account</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3 pt-2">
+            </DialogStickyHeader>
+            <DialogScrollBody>
+            <div className="space-y-3">
               <div>
                 <Label>Full name</Label>
                 <Input
@@ -158,7 +161,7 @@ export default function AdminTeamPage() {
                   value={role}
                   onValueChange={(v) => v && setRole(v as UserRole)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -170,14 +173,17 @@ export default function AdminTeamPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            </DialogScrollBody>
+            <DialogStickyFooter>
               <Button
-                className="w-full bg-green hover:bg-green/90"
+                className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                 onClick={handleCreate}
                 disabled={saving}
               >
                 {saving ? "Creating..." : "Create account"}
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </div>

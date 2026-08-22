@@ -10,7 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LocationPinMap } from "@/components/customer/LocationPinMap";
@@ -309,13 +311,14 @@ export function SavedAddressesCard() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-          <DialogHeader>
+        <DialogContent scrollable className="sm:max-w-md">
+          <DialogStickyHeader>
             <DialogTitle>
               {editing ? "Edit address" : "Add address"}
             </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 pt-1">
+          </DialogStickyHeader>
+          <DialogScrollBody>
+          <div className="space-y-3">
             <div>
               <Label htmlFor="addr-label">Label</Label>
               <Input
@@ -411,11 +414,14 @@ export function SavedAddressesCard() {
               />
               Set as default address
             </label>
+          </div>
+          </DialogScrollBody>
+          <DialogStickyFooter>
             <Button
               type="button"
               disabled={saving}
               onClick={() => void handleSave()}
-              className="h-11 w-full rounded-xl bg-green hover:bg-green/90"
+              className="h-11 w-full rounded-xl bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
             >
               {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -425,7 +431,7 @@ export function SavedAddressesCard() {
                 "Save address"
               )}
             </Button>
-          </div>
+          </DialogStickyFooter>
         </DialogContent>
       </Dialog>
     </>

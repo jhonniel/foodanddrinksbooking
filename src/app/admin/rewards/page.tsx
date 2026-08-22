@@ -19,7 +19,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Reward } from "@/types";
@@ -173,13 +175,14 @@ export default function AdminRewardsPage() {
             <Plus className="h-4 w-4" />
             Add Reward
           </Button>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent scrollable className="sm:max-w-md">
+            <DialogStickyHeader>
               <DialogTitle>
                 {editing ? "Edit Reward" : "Add Reward"}
               </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
+            </DialogStickyHeader>
+            <DialogScrollBody>
+            <div className="space-y-4">
               <div>
                 <Label htmlFor="reward-name">Name *</Label>
                 <Input
@@ -222,13 +225,16 @@ export default function AdminRewardsPage() {
                   placeholder="50"
                 />
               </div>
+            </div>
+            </DialogScrollBody>
+            <DialogStickyFooter>
               <Button
-                className="w-full bg-green hover:bg-green/90"
+                className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                 onClick={handleSave}
               >
                 {editing ? "Save Changes" : "Save Reward"}
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </div>

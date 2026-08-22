@@ -13,8 +13,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -316,9 +317,11 @@ export default function AdminOrderHistoryPage() {
           if (!open && !deleting) setDeleteTarget(null);
         }}
       >
-        <DialogContent className="sm:max-w-md" showCloseButton={false}>
-          <DialogHeader>
+        <DialogContent scrollable className="sm:max-w-md" showCloseButton={false}>
+          <DialogStickyHeader>
             <DialogTitle>Delete order?</DialogTitle>
+          </DialogStickyHeader>
+          <DialogScrollBody className="py-2">
             <DialogDescription>
               {deleteTarget ? (
                 <>
@@ -332,8 +335,8 @@ export default function AdminOrderHistoryPage() {
                 </>
               ) : null}
             </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+          </DialogScrollBody>
+          <DialogStickyFooter>
             <Button
               type="button"
               variant="outline"
@@ -350,7 +353,7 @@ export default function AdminOrderHistoryPage() {
             >
               {deleting ? "Deleting…" : "Delete order"}
             </Button>
-          </DialogFooter>
+          </DialogStickyFooter>
         </DialogContent>
       </Dialog>
 

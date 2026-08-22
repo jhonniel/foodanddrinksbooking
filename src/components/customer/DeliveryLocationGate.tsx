@@ -8,7 +8,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LocationPinMap } from "@/components/customer/LocationPinMap";
@@ -76,11 +78,8 @@ export function DeliveryLocationGate() {
 
   return (
     <Dialog open={open}>
-      <DialogContent
-        showCloseButton={false}
-        className="max-h-[92vh] overflow-y-auto sm:max-w-lg"
-      >
-        <DialogHeader>
+      <DialogContent scrollable showCloseButton={false} className="sm:max-w-lg">
+        <DialogStickyHeader>
           <DialogTitle className="flex items-center gap-2 text-navy">
             <MapPin className="h-5 w-5 text-sky" />
             Where should we deliver?
@@ -89,11 +88,13 @@ export function DeliveryLocationGate() {
             We only deliver within Samal Island. Share your location or pin it
             on the map.
           </DialogDescription>
-        </DialogHeader>
+        </DialogStickyHeader>
 
-        <LocationPinMap value={pin} onChange={setPin} heightClassName="h-56" />
+        <DialogScrollBody className="space-y-4">
+          <LocationPinMap value={pin} onChange={setPin} heightClassName="h-56" />
+        </DialogScrollBody>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <DialogStickyFooter>
           <Button
             type="button"
             variant="outline"
@@ -110,7 +111,7 @@ export function DeliveryLocationGate() {
           >
             Confirm delivery pin
           </Button>
-        </div>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   );

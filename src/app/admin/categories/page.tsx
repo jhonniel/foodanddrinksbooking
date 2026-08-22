@@ -25,7 +25,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Category } from "@/types";
@@ -240,13 +242,14 @@ export default function AdminCategoriesPage() {
             <Plus className="h-4 w-4" />
             Add Category
           </Button>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent scrollable className="sm:max-w-lg">
+            <DialogStickyHeader>
               <DialogTitle>
                 {editing ? "Edit Category" : "Add Category"}
               </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
+            </DialogStickyHeader>
+            <DialogScrollBody>
+            <div className="space-y-4">
               <div>
                 <Label htmlFor="cat-name">Name *</Label>
                 <Input
@@ -269,12 +272,12 @@ export default function AdminCategoriesPage() {
               <div className="space-y-2">
                 <Label>Category image</Label>
                 {previewUrl && (
-                  <div className="relative aspect-video overflow-hidden rounded-xl bg-light-blue">
+                  <div className="relative max-h-36 overflow-hidden rounded-xl bg-light-blue">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={previewUrl}
                       alt="Preview"
-                      className="h-full w-full object-cover"
+                      className="h-full max-h-36 w-full object-cover"
                     />
                   </div>
                 )}
@@ -295,8 +298,11 @@ export default function AdminCategoriesPage() {
                   Uploads save to S3 (`islandcoolersimg`).
                 </p>
               </div>
+            </div>
+            </DialogScrollBody>
+            <DialogStickyFooter>
               <Button
-                className="w-full bg-green hover:bg-green/90"
+                className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                 onClick={() => void handleSave()}
                 disabled={saving}
               >
@@ -306,7 +312,7 @@ export default function AdminCategoriesPage() {
                     ? "Save Changes"
                     : "Save Category"}
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </div>

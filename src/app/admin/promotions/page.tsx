@@ -14,7 +14,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -393,8 +395,8 @@ export default function AdminPromotionsPage() {
             <Plus className="h-4 w-4" />
             Create
           </Button>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-            <DialogHeader>
+          <DialogContent scrollable className="sm:max-w-md">
+            <DialogStickyHeader>
               <DialogTitle>
                 {editing
                   ? kind === "PROMOTION"
@@ -404,8 +406,9 @@ export default function AdminPromotionsPage() {
                     ? "Create Promotion"
                     : "Create Voucher"}
               </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
+            </DialogStickyHeader>
+            <DialogScrollBody>
+            <div className="space-y-4">
               <div>
                 <Label>Type *</Label>
                 <Select
@@ -571,8 +574,11 @@ export default function AdminPromotionsPage() {
                   placeholder="0"
                 />
               </div>
+            </div>
+            </DialogScrollBody>
+            <DialogStickyFooter>
               <Button
-                className="w-full bg-green hover:bg-green/90"
+                className="w-full bg-green hover:bg-green/90 sm:w-auto sm:min-w-[140px]"
                 onClick={() => void handleSave()}
                 disabled={saving}
               >
@@ -586,7 +592,7 @@ export default function AdminPromotionsPage() {
                   "Save Voucher"
                 )}
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </div>

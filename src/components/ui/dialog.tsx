@@ -43,9 +43,12 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  scrollable = false,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /** Tall forms: fixed header/footer with scrollable body (max 90dvh). */
+  scrollable?: boolean
 }) {
   return (
     <DialogPortal>
@@ -53,7 +56,10 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          scrollable
+            ? "flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0"
+            : "grid max-h-[90dvh] gap-4 overflow-y-auto overscroll-contain p-4 sm:max-w-sm",
           className
         )}
         {...props}
@@ -65,7 +71,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
+                className="absolute top-2 right-2 z-10"
                 size="icon-sm"
               />
             }
@@ -77,6 +83,44 @@ function DialogContent({
         )}
       </DialogPrimitive.Popup>
     </DialogPortal>
+  )
+}
+
+/** Sticky title area when `DialogContent scrollable` is set. */
+function DialogStickyHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <DialogHeader
+      className={cn("shrink-0 border-b px-4 py-3 pr-12", className)}
+      {...props}
+    />
+  )
+}
+
+/** Scrollable form body when `DialogContent scrollable` is set. */
+function DialogScrollBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-scroll-body"
+      className={cn(
+        "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/** Sticky action bar (Save / Cancel) at the bottom of scrollable dialogs. */
+function DialogStickyFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-sticky-footer"
+      className={cn(
+        "flex shrink-0 flex-col-reverse gap-2 border-t bg-popover px-4 py-3 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    />
   )
 }
 
@@ -155,6 +199,9 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogStickyHeader,
   DialogTitle,
   DialogTrigger,
 }
