@@ -171,11 +171,7 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!product || !orderable) return;
-    if (quantity > remainingPurchasable) {
-      toast.error(maxStockToastMessage(product.name));
-      return;
-    }
-    addItem({
+    const added = addItem({
       productId: product.id,
       productName: product.name,
       productImage: product.image_url ?? null,
@@ -191,6 +187,7 @@ export default function ProductDetailPage() {
         quantity: a.quantity ?? 1,
       })),
     });
+    if (!added) return;
     toast.success(`${product.name} added to cart`);
     router.push("/cart");
   };

@@ -72,6 +72,35 @@ export function unavailableStockToastMessage(productName: string): string {
   return `${productName} is currently unavailable.`;
 }
 
+/** Trim cart lines so total per product never exceeds can-make. */
+export function clampCartToStockLimits(
+  items: CartItem[],
+  products: Product[],
+  inventory: InventoryItem[]
+): CartItem[] {
+  const usedByProduct = new Map<string, number>();
+  const result: CartItem[] = [];
+
+  for (const item of items) {
+    const product = products.find((p) => p.id === item.productId);
+    if (!product) {
+      result.push(item);
+      continue;
+    }
+
+    const canMake = getProductCanMake(product, inventory);
+    const used = usedByProduct.get(item.productId) ?? 0;
+    const room = Math.max(0, canMake - used);
+    if (room <= 0) continue;
+
+    const quantity = Math.min(item.quantity, room);
+    usedByProduct.set(item.productId, used + quantity);
+    result.push({ ...item, quantity });
+  }
+
+  return result;
+}
+
 /** True when product has a recipe and can-make is computed. */
 export function productHasMakeableStock(
   product: Pick<Product, "recipes">,

@@ -17,10 +17,6 @@ import {
 import { useCartTotals } from "@/hooks/useCartTotals";
 import { validatePromoCode } from "@/services/productService";
 import { formatCurrency } from "@/lib/utils/format";
-import {
-  getMaxQuantityForCartLine,
-  maxStockToastMessage,
-} from "@/lib/cart/stockLimits";
 import { useDataStore } from "@/stores/data";
 import { DELIVERY_CONFIG } from "@/data/demo";
 import {
@@ -32,11 +28,13 @@ export default function CartPage() {
   const searchParams = useSearchParams();
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const normalizeCart = useCartStore((s) => s.normalizeCart);
   const setPromo = useCartStore((s) => s.setPromo);
   const products = useDataStore((s) => s.products);
   const inventory = useDataStore((s) => s.inventory);
   const {
     items,
+    itemCount,
     promoCode,
     promoDiscount,
     orderType,
@@ -73,23 +71,11 @@ export default function CartPage() {
     setPromo(null, 0);
   };
 
-  const handleIncreaseQuantity = (item: (typeof items)[number]) => {
-    const product = products.find((p) => p.id === item.productId);
-    if (!product) {
-      updateQuantity(item.id, item.quantity + 1);
-      return;
-    }
+  useEffect(() => {
+    normalizeCart();
+  }, [normalizeCart, products, inventory]);
 
-    const maxForLine = getMaxQuantityForCartLine(
-      product,
-      inventory,
-      items,
-      item.id
-    );
-    if (item.quantity >= maxForLine) {
-      toast.error(maxStockToastMessage(item.productName));
-      return;
-    }
+  const handleIncreaseQuantity = (item: (typeof items)[number]) => {
     updateQuantity(item.id, item.quantity + 1);
   };
 
@@ -110,7 +96,7 @@ export default function CartPage() {
       <div>
         <h1 className="text-2xl font-bold text-navy">Your Cart</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {items.length} {items.length === 1 ? "item" : "items"}
+          {itemCount} {itemCount === 1 ? "item" : "items"}
         </p>
       </div>
 

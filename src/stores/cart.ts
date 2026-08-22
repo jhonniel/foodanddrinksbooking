@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import type { CartItem, CartItemAddon, CartItemOption } from "@/types";
 import { DELIVERY_CONFIG } from "@/data/demo";
 import { calculateOrderPointsEarned } from "@/services/loyaltyService";
@@ -7,6 +8,17 @@ import {
   type DeliveryQuote,
   type LatLng,
 } from "@/lib/delivery/pricing";
+import {
+  cartItemSignature,
+  consolidateCartItems,
+} from "@/lib/cartHelpers";
+import {
+  clampCartToStockLimits,
+  getCartProductQuantity,
+  getProductCanMake,
+  maxStockToastMessage,
+} from "@/lib/cart/stockLimits";
+import { useDataStore } from "@/stores/data";
 
 interface CartState {
   items: CartItem[];
@@ -17,9 +29,10 @@ interface CartState {
   orderType: "DELIVERY" | "PICKUP";
   deliveryLocation: LatLng | null;
   deliveryAddressLabel: string | null;
-  addItem: (item: Omit<CartItem, "id">) => void;
+  addItem: (item: Omit<CartItem, "id">) => boolean;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
+  normalizeCart: () => void;
   clearCart: () => void;
   setPromo: (code: string | null, discount: number) => void;
   setPointsToUse: (points: number, discount: number) => void;
@@ -66,6 +79,16 @@ export function formatCartOptions(
   return parts.join(" · ");
 }
 
+function getCatalogState() {
+  const { products, inventory } = useDataStore.getState();
+  return { products, inventory };
+}
+
+function applyStockRules(items: CartItem[]): CartItem[] {
+  const { products, inventory } = getCatalogState();
+  return clampCartToStockLimits(consolidateCartItems(items), products, inventory);
+}
+
 /** Default: no pin until user confirms Samal location */
 const DEFAULT_DELIVERY: LatLng | null = null;
 
@@ -80,8 +103,64 @@ export const useCartStore = create<CartState>()((set, get) => ({
       deliveryAddressLabel: null,
 
       addItem: (item) => {
-        const id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        set((s) => ({ items: [...s.items, { ...item, id }] }));
+        const { products, inventory } = getCatalogState();
+        const product = products.find((p) => p.id === item.productId);
+        const qtyRequested = Math.max(1, item.quantity ?? 1);
+        const signature = cartItemSignature(item);
+        let capped = false;
+        let added = false;
+
+        set((s) => {
+          let items = consolidateCartItems(s.items);
+          const existing = items.find((i) => cartItemSignature(i) === signature);
+
+          if (product) {
+            const inCart = getCartProductQuantity(items, item.productId);
+            const canMake = getProductCanMake(product, inventory);
+            const remaining = Math.max(0, canMake - inCart);
+
+            if (remaining <= 0) {
+              capped = true;
+              return { items };
+            }
+
+            const qtyToAdd = Math.min(qtyRequested, remaining);
+            if (qtyToAdd < qtyRequested) capped = true;
+            added = qtyToAdd > 0;
+
+            if (existing) {
+              items = items.map((i) =>
+                i.id === existing.id
+                  ? { ...i, quantity: i.quantity + qtyToAdd }
+                  : i
+              );
+            } else {
+              const id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              items = [...items, { ...item, quantity: qtyToAdd, id }];
+            }
+
+            return { items: clampCartToStockLimits(items, products, inventory) };
+          }
+
+          added = true;
+          if (existing) {
+            items = items.map((i) =>
+              i.id === existing.id
+                ? { ...i, quantity: i.quantity + qtyRequested }
+                : i
+            );
+          } else {
+            const id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            items = [...items, { ...item, quantity: qtyRequested, id }];
+          }
+          return { items };
+        });
+
+        if (capped && product) {
+          toast.error(maxStockToastMessage(product.name));
+        }
+
+        return added;
       },
 
       removeItem: (id) =>
@@ -92,10 +171,47 @@ export const useCartStore = create<CartState>()((set, get) => ({
           get().removeItem(id);
           return;
         }
-        set((s) => ({
-          items: s.items.map((i) => (i.id === id ? { ...i, quantity } : i)),
-        }));
+
+        const { products, inventory } = getCatalogState();
+        let capped = false;
+        let productName = "";
+
+        set((s) => {
+          let items = consolidateCartItems(s.items);
+          const item = items.find((i) => i.id === id);
+          if (!item) return { items };
+
+          const product = products.find((p) => p.id === item.productId);
+          if (!product) {
+            return {
+              items: items.map((i) => (i.id === id ? { ...i, quantity } : i)),
+            };
+          }
+
+          productName = item.productName;
+          const otherQty = getCartProductQuantity(items, item.productId, id);
+          const maxForLine = Math.max(
+            0,
+            getProductCanMake(product, inventory) - otherQty
+          );
+          const cappedQty = Math.min(quantity, maxForLine);
+          if (cappedQty < quantity) capped = true;
+
+          items = items.map((i) =>
+            i.id === id ? { ...i, quantity: cappedQty } : i
+          );
+          return { items: clampCartToStockLimits(items, products, inventory) };
+        });
+
+        if (capped && productName) {
+          toast.error(maxStockToastMessage(productName));
+        }
       },
+
+      normalizeCart: () =>
+        set((s) => ({
+          items: applyStockRules(s.items),
+        })),
 
       clearCart: () =>
         set({

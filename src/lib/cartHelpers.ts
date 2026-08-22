@@ -1,4 +1,38 @@
-import type { CartItem, CartItemOption, Product } from "@/types";
+import type { CartItem, CartItemAddon, CartItemOption, Product } from "@/types";
+
+export function cartItemSignature(
+  item: Pick<CartItem, "productId" | "options" | "addons">
+): string {
+  const optionsKey = [...(item.options ?? [])]
+    .sort((a, b) => a.optionId.localeCompare(b.optionId))
+    .map((o) => `${o.optionId}:${o.valueId}`)
+    .join("|");
+  const addonsKey = [...(item.addons ?? [])]
+    .sort((a, b) => a.addonId.localeCompare(b.addonId))
+    .map((a) => `${a.addonId}:${a.quantity}`)
+    .join("|");
+  return `${item.productId}::${optionsKey}::${addonsKey}`;
+}
+
+/** Merge separate lines that are the same product + options + add-ons. */
+export function consolidateCartItems(items: CartItem[]): CartItem[] {
+  const merged = new Map<string, CartItem>();
+
+  for (const item of items) {
+    const key = cartItemSignature(item);
+    const existing = merged.get(key);
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        quantity: existing.quantity + item.quantity,
+      });
+    } else {
+      merged.set(key, { ...item });
+    }
+  }
+
+  return Array.from(merged.values());
+}
 
 export function buildDefaultCartItem(
   product: Product,
