@@ -17,6 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -29,7 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/shared/EmptyState";
-import type { ExpenseCategory } from "@/types";
+import type { Expense, ExpenseCategory } from "@/types";
 
 const EXPENSE_CATEGORIES = Object.keys(
   EXPENSE_CATEGORY_LABELS
@@ -42,6 +44,7 @@ export default function AdminExpensesPage() {
   const deleteExpense = useDataStore((s) => s.deleteExpense);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<ExpenseCategory>("SUPPLIES");
@@ -98,6 +101,13 @@ export default function AdminExpensesPage() {
     toast.success("Expense recorded.");
     setDialogOpen(false);
     resetForm();
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteExpense(deleteTarget.id);
+    toast.success("Expense removed.");
+    setDeleteTarget(null);
   };
 
   return (
@@ -194,6 +204,47 @@ export default function AdminExpensesPage() {
         </Dialog>
       </div>
 
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete expense?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget ? (
+                <>
+                  This will permanently remove{" "}
+                  <span className="font-medium text-foreground">
+                    {deleteTarget.title}
+                  </span>{" "}
+                  ({formatCurrency(deleteTarget.amount)}) from your expense log.
+                  This action cannot be undone.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmDelete}
+            >
+              Delete expense
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl bg-white p-4 shadow-card">
           <p className="text-xs text-muted-foreground">Manual expenses</p>
@@ -248,10 +299,8 @@ export default function AdminExpensesPage() {
                     size="sm"
                     variant="outline"
                     className="text-destructive"
-                    onClick={() => {
-                      deleteExpense(expense.id);
-                      toast.success("Expense removed.");
-                    }}
+                    aria-label={`Delete ${expense.title}`}
+                    onClick={() => setDeleteTarget(expense)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

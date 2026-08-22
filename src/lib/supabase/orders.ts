@@ -904,3 +904,107 @@ export async function updateDeliveryStatusInSupabase(input: {
     delivery: refreshed?.delivery ?? undefined,
   };
 }
+
+/**
+ * Permanently remove a completed/cancelled order and related records.
+ * Only for admin cleanup of order history — not active queue orders.
+ */
+export async function deleteOrderInSupabase(
+  orderId: string
+): Promise<{ error?: string }> {
+  const client = await getOrdersClient();
+  if (!client) {
+    return { error: "Supabase is not configured." };
+  }
+
+  const loaded = await fetchOrderByIdFromSupabase(orderId);
+  if (!loaded) {
+    return { error: "Order not found." };
+  }
+
+  const order = loaded.order;
+  if (order.status !== "DELIVERED" && order.status !== "CANCELLED") {
+    return {
+      error: "Only delivered or cancelled orders can be deleted from history.",
+    };
+  }
+
+  const { data: pointsTxs } = await client
+    .from("points_transactions")
+    .select("type, points")
+    .eq("order_id", orderId);
+
+  if (pointsTxs?.length) {
+    let balanceDelta = 0;
+    let lifetimeDelta = 0;
+    for (const tx of pointsTxs) {
+      const pts = Number(tx.points ?? 0);
+      balanceDelta -= pts;
+      if (tx.type === "EARNED") {
+        lifetimeDelta -= Math.abs(pts);
+      }
+    }
+
+    const { data: profile } = await client
+      .from("profiles")
+      .select("points_balance, lifetime_points")
+      .eq("id", order.customer_id)
+      .maybeSingle();
+
+    const nextBalance = Math.max(
+      0,
+      Number(profile?.points_balance ?? 0) + balanceDelta
+    );
+    const nextLifetime = Math.max(
+      0,
+      Number(profile?.lifetime_points ?? 0) + lifetimeDelta
+    );
+
+    await client.from("points_transactions").delete().eq("order_id", orderId);
+    await client
+      .from("profiles")
+      .update({
+        points_balance: nextBalance,
+        lifetime_points: nextLifetime,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.customer_id);
+  }
+
+  const { data: promoUsages } = await client
+    .from("promotion_usages")
+    .select("promotion_id")
+    .eq("order_id", orderId);
+
+  await client.from("promotion_usages").delete().eq("order_id", orderId);
+
+  for (const usage of promoUsages ?? []) {
+    const promoId = String(usage.promotion_id);
+    const { data: promo } = await client
+      .from("promotions")
+      .select("usage_count")
+      .eq("id", promoId)
+      .maybeSingle();
+    const nextCount = Math.max(0, Number(promo?.usage_count ?? 1) - 1);
+    await client
+      .from("promotions")
+      .update({ usage_count: nextCount, updated_at: new Date().toISOString() })
+      .eq("id", promoId);
+  }
+
+  await client.from("payments").delete().eq("order_id", orderId);
+  await client.from("delivery_orders").delete().eq("order_id", orderId);
+  await client.from("reward_redemptions").delete().eq("order_id", orderId);
+  await client
+    .from("reviews")
+    .update({ order_id: null })
+    .eq("order_id", orderId);
+  await client.from("inventory_deductions").delete().eq("order_id", orderId);
+
+  const { error } = await client.from("orders").delete().eq("id", orderId);
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {};
+}

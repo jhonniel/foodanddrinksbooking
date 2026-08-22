@@ -22,6 +22,7 @@ interface AppState {
   mergeOrders: (orders: Order[]) => void;
   mergeDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
+  removeOrder: (orderId: string) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   assignDriver: (orderId: string, driverId: string) => Promise<void>;
   updateDeliveryStatus: (
@@ -99,6 +100,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
         set((s) => ({ orders: mergeById(s.orders, orders) })),
       mergeDeliveries: (deliveries) =>
         set((s) => ({ deliveries: mergeById(s.deliveries, deliveries) })),
+
+      removeOrder: (orderId) =>
+        set((s) => ({
+          orders: s.orders.filter((o) => o.id !== orderId),
+          deliveries: s.deliveries.filter((d) => d.order_id !== orderId),
+        })),
 
       addOrder: (order) => {
         const staff = useDataStore

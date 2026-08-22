@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Package, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Package, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -30,11 +32,14 @@ const UNITS = ["g", "ml", "pcs", "kg", "L"] as const;
 
 export default function AdminInventoryPage() {
   const inventory = useDataStore((s) => s.inventory);
+  const products = useDataStore((s) => s.products);
   const addInventoryItem = useDataStore((s) => s.addInventoryItem);
   const adjustInventory = useDataStore((s) => s.adjustInventory);
+  const deleteInventoryItem = useDataStore((s) => s.deleteInventoryItem);
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<InventoryItem | null>(null);
   const [adjustQty, setAdjustQty] = useState("");
 
   const [name, setName] = useState("");
@@ -127,6 +132,33 @@ export default function AdminInventoryPage() {
   const openAdjustDialog = (item: InventoryItem) => {
     setAdjustItem(item);
     setAdjustQty(String(item.current_quantity));
+  };
+
+  const linkedProducts = useMemo(() => {
+    if (!deleteTarget) return [];
+    return products.filter((product) =>
+      (product.recipes ?? []).some(
+        (recipe) => recipe.inventory_item_id === deleteTarget.id
+      )
+    );
+  }, [deleteTarget, products]);
+
+  const handleConfirmDelete = () => {
+    if (!deleteTarget) return;
+
+    const name = deleteTarget.name;
+    deleteInventoryItem(deleteTarget.id);
+    setDeleteTarget(null);
+
+    void applyInventoryAvailabilityRules().then((flipped) => {
+      if (flipped.length > 0) {
+        toast.warning(
+          `${flipped.length} product${flipped.length > 1 ? "s" : ""} marked unavailable after ingredient removal.`
+        );
+      }
+    });
+
+    toast.success(`"${name}" removed from inventory.`);
   };
 
   return (
@@ -235,6 +267,62 @@ export default function AdminInventoryPage() {
         </div>
       </div>
 
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete inventory item?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget ? (
+                linkedProducts.length > 0 ? (
+                  <>
+                    This will permanently remove{" "}
+                    <span className="font-medium text-foreground">
+                      {deleteTarget.name}
+                    </span>{" "}
+                    ({deleteTarget.sku}) from inventory. It is used in{" "}
+                    {linkedProducts.length} product
+                    {linkedProducts.length > 1 ? "s" : ""} (
+                    {linkedProducts.map((p) => p.name).join(", ")}). The
+                    ingredient will be removed from those recipes. This action
+                    cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    This will permanently remove{" "}
+                    <span className="font-medium text-foreground">
+                      {deleteTarget.name}
+                    </span>{" "}
+                    ({deleteTarget.sku}) from inventory. This action cannot be
+                    undone.
+                  </>
+                )
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmDelete}
+            >
+              Delete item
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="overflow-hidden rounded-2xl bg-white shadow-card">
         {/* Mobile cards */}
         <div className="space-y-3 p-3 md:hidden">
@@ -265,14 +353,24 @@ export default function AdminInventoryPage() {
                     {item.sku} · {item.supplier ?? "No supplier"}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0"
-                  onClick={() => openAdjustDialog(item)}
-                >
-                  Adjust
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openAdjustDialog(item)}
+                  >
+                    Adjust
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive"
+                    aria-label={`Delete ${item.name}`}
+                    onClick={() => setDeleteTarget(item)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="rounded-lg bg-white/80 p-2">
@@ -373,13 +471,24 @@ export default function AdminInventoryPage() {
                     {formatDate(item.last_restocked_at ?? item.created_at)}
                   </td>
                   <td className="px-5 py-3">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openAdjustDialog(item)}
-                    >
-                      Adjust
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openAdjustDialog(item)}
+                      >
+                        Adjust
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive"
+                        aria-label={`Delete ${item.name}`}
+                        onClick={() => setDeleteTarget(item)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1,13 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { History, RefreshCw, Search } from "lucide-react";
+import { History, RefreshCw, Search, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -30,6 +39,7 @@ export default function AdminOrderHistoryPage() {
   const orders = useAppStore((s) => s.orders);
   const setOrders = useAppStore((s) => s.setOrders);
   const setDeliveries = useAppStore((s) => s.setDeliveries);
+  const removeOrder = useAppStore((s) => s.removeOrder);
   const user = useAuthStore((s) => s.user);
   const authInitializing = useAuthStore((s) => s.initializing);
   const [refreshing, setRefreshing] = useState(false);
@@ -37,6 +47,8 @@ export default function AdminOrderHistoryPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<HistoryFilter>("ALL");
   const [selected, setSelected] = useState<Order | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const refreshOrders = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setRefreshing(true);
@@ -133,6 +145,37 @@ export default function AdminOrderHistoryPage() {
   const cancelledCount = historyOrders.filter(
     (o) => o.status === "CANCELLED"
   ).length;
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/orders/${deleteTarget.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+
+      if (!res.ok) {
+        toast.error(payload?.error || "Could not delete order.");
+        return;
+      }
+
+      removeOrder(deleteTarget.id);
+      if (selected?.id === deleteTarget.id) {
+        setSelected(null);
+      }
+      toast.success(`Order #${deleteTarget.order_number} deleted.`);
+      setDeleteTarget(null);
+    } catch {
+      toast.error("Could not delete order.");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="p-4 lg:p-8">
@@ -263,6 +306,50 @@ export default function AdminOrderHistoryPage() {
         </div>
       )}
 
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete order?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget ? (
+                <>
+                  This will permanently remove order{" "}
+                  <span className="font-medium text-foreground">
+                    #{deleteTarget.order_number}
+                  </span>{" "}
+                  ({formatCurrency(deleteTarget.total)}) from history. Related
+                  payments, delivery records, and loyalty entries will also be
+                  removed. This action cannot be undone.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void handleConfirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete order"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Sheet open={!!selected} onOpenChange={() => setSelected(null)}>
         <SheetContent className="w-full sm:max-w-md">
           {selected && (
@@ -333,6 +420,15 @@ export default function AdminOrderHistoryPage() {
                     <span>{formatCurrency(selected.total)}</span>
                   </div>
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-red-200 text-red-600 hover:bg-red-50"
+                  onClick={() => setDeleteTarget(selected)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete order
+                </Button>
               </div>
             </>
           )}

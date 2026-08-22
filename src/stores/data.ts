@@ -278,6 +278,7 @@ interface DataState {
   /** Subtract amount from current stock (floors at 0) */
   decrementInventory: (id: string, amount: number) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+  deleteInventoryItem: (id: string) => void;
   markOrderInventoryDeducted: (orderId: string) => void;
   wasOrderInventoryDeducted: (orderId: string) => boolean;
 
@@ -588,6 +589,24 @@ export const useDataStore = create<DataState>()(
               ? { ...item, ...updates, updated_at: new Date().toISOString() }
               : item
           ),
+        })),
+
+      deleteInventoryItem: (id) =>
+        set((s) => ({
+          inventory: s.inventory.filter((item) => item.id !== id),
+          products: s.products.map((product) => {
+            const recipes = (product.recipes ?? []).filter(
+              (recipe) => recipe.inventory_item_id !== id
+            );
+            if (recipes.length === (product.recipes ?? []).length) {
+              return product;
+            }
+            return {
+              ...product,
+              recipes,
+              updated_at: new Date().toISOString(),
+            };
+          }),
         })),
 
       markOrderInventoryDeducted: (orderId) =>

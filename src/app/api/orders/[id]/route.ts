@@ -15,6 +15,7 @@ import {
 } from "@/lib/constants";
 import {
   assignDriverInSupabase,
+  deleteOrderInSupabase,
   fetchOrderByIdFromSupabase,
   updateOrderStatusInSupabase,
 } from "@/lib/supabase/orders";
@@ -233,4 +234,34 @@ export async function PATCH(
     );
   }
   return NextResponse.json({ order: result.order });
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  if (!isSupabaseConfigured()) return supabaseRequired();
+
+  const profile = await getSessionProfileFromRequest(request);
+  if (!assertRole(profile, "authenticated")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!canAccessAdmin(profile.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await context.params;
+  const result = await deleteOrderInSupabase(id);
+  if (result.error) {
+    const status =
+      result.error === "Order not found."
+        ? 404
+        : result.error.includes("Only delivered or cancelled")
+          ? 400
+          : 400;
+    return NextResponse.json({ error: result.error }, { status });
+  }
+
+  return NextResponse.json({ success: true });
 }
