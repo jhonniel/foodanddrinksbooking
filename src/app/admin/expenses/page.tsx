@@ -132,6 +132,10 @@ export default function AdminExpensesPage() {
       }
 
       deleteExpense(deleteTarget.id);
+      const { requestServerDataSync } = await import(
+        "@/services/dataSyncService"
+      );
+      requestServerDataSync();
       toast.success("Expense removed.");
       setDeleteTarget(null);
     } finally {

@@ -325,11 +325,20 @@ export default function AdminProductsPage() {
   const handleDelete = async (id: string, productName: string) => {
     if (!window.confirm(`Delete "${productName}"? This cannot be undone.`))
       return;
-    deleteProduct(id);
+
     if (isUuid(id)) {
       const remote = await removeProductRemote(id);
-      if (!remote.ok) toast.error(remote.error ?? "Removed locally only.");
+      if (!remote.ok) {
+        toast.error(remote.error ?? "Could not delete product.");
+        return;
+      }
     }
+
+    deleteProduct(id);
+    const { requestServerDataSync } = await import(
+      "@/services/dataSyncService"
+    );
+    requestServerDataSync();
     toast.success(`"${productName}" removed from the menu.`);
   };
 

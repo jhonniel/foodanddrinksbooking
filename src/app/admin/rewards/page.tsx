@@ -132,6 +132,10 @@ export default function AdminRewardsPage() {
     }
 
     deleteReward(reward.id);
+    const { requestServerDataSync } = await import(
+      "@/services/dataSyncService"
+    );
+    requestServerDataSync();
     toast.success(`"${reward.name}" deleted.`);
   };
 

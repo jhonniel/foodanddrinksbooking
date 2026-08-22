@@ -188,6 +188,10 @@ export default function AdminCategoriesPage() {
     }
 
     deleteCategory(category.id);
+    const { requestServerDataSync } = await import(
+      "@/services/dataSyncService"
+    );
+    requestServerDataSync();
     toast.success(`"${category.name}" deleted.`);
   };
 

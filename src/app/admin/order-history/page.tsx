@@ -168,6 +168,10 @@ export default function AdminOrderHistoryPage() {
       if (selected?.id === deleteTarget.id) {
         setSelected(null);
       }
+      const { requestServerDataSync } = await import(
+        "@/services/dataSyncService"
+      );
+      requestServerDataSync();
       toast.success(`Order #${deleteTarget.order_number} deleted.`);
       setDeleteTarget(null);
     } catch {

@@ -199,6 +199,11 @@ export default function AdminInventoryPage() {
       deleteInventoryItem(deleteTarget.id);
       setDeleteTarget(null);
 
+      const { requestServerDataSync } = await import(
+        "@/services/dataSyncService"
+      );
+      requestServerDataSync();
+
       void applyInventoryAvailabilityRules().then((flipped) => {
         if (flipped.length > 0) {
           toast.warning(

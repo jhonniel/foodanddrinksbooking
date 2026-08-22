@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Megaphone, Plus, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
@@ -33,6 +33,10 @@ import {
   redemptionModeHint,
   redemptionModeLabel,
 } from "@/lib/vouchers/redemptionMode";
+import {
+  requestServerDataSync,
+  syncAllDataFromServer,
+} from "@/services/dataSyncService";
 
 function defaultEndsAtLocal(): string {
   const d = new Date();
@@ -55,6 +59,8 @@ function isUuid(id: string) {
 }
 
 export default function AdminPromotionsPage() {
+  const vouchers = useDataStore((s) => s.promotions);
+  const hydrated = useDataStore((s) => s.hydrated);
   const addPromotion = useDataStore((s) => s.addPromotion);
   const updatePromotionLocal = useDataStore((s) => s.updatePromotion);
   const deletePromotionLocal = useDataStore((s) => s.deletePromotion);
@@ -62,8 +68,6 @@ export default function AdminPromotionsPage() {
     (s) => s.togglePromotionActive
   );
 
-  const [vouchers, setVouchers] = useState<Promotion[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Promotion | null>(null);
@@ -80,35 +84,10 @@ export default function AdminPromotionsPage() {
   const [redemptionMode, setRedemptionMode] =
     useState<VoucherRedemptionMode>("CLAIM");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/vouchers", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const data = (await res.json().catch(() => null)) as {
-        vouchers?: Promotion[];
-        error?: string;
-      } | null;
-      if (res.ok) {
-        setVouchers(data?.vouchers ?? []);
-      } else if (res.status === 503) {
-        setVouchers(useDataStore.getState().promotions);
-      } else {
-        toast.error(data?.error || "Could not load promotions.");
-        setVouchers([]);
-      }
-    } catch {
-      setVouchers(useDataStore.getState().promotions);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const pullPromotions = async () => {
+    await syncAllDataFromServer();
+    requestServerDataSync();
+  };
 
   const resetForm = () => {
     setEditing(null);
@@ -240,7 +219,7 @@ export default function AdminPromotionsPage() {
           toast.success(`Voucher ${code} updated.`);
           setDialogOpen(false);
           resetForm();
-          await refresh();
+          await pullPromotions();
           return;
         }
 
@@ -259,7 +238,7 @@ export default function AdminPromotionsPage() {
         toast.success(`Voucher ${code} updated.`);
         setDialogOpen(false);
         resetForm();
-        setVouchers(useDataStore.getState().promotions);
+        requestServerDataSync();
         return;
       }
 
@@ -292,7 +271,7 @@ export default function AdminPromotionsPage() {
         );
         setDialogOpen(false);
         resetForm();
-        await refresh();
+        await pullPromotions();
         return;
       }
 
@@ -315,7 +294,7 @@ export default function AdminPromotionsPage() {
         );
         setDialogOpen(false);
         resetForm();
-        setVouchers(useDataStore.getState().promotions);
+        requestServerDataSync();
         return;
       }
 
@@ -338,7 +317,7 @@ export default function AdminPromotionsPage() {
 
     if (!isUuid(promo.id)) {
       deletePromotionLocal(promo.id);
-      setVouchers(useDataStore.getState().promotions);
+      requestServerDataSync();
       toast.success(`"${promo.name}" deleted.`);
       return;
     }
@@ -356,7 +335,7 @@ export default function AdminPromotionsPage() {
         return;
       }
       toast.success(`"${promo.name}" deleted.`);
-      await refresh();
+      await pullPromotions();
     } catch {
       toast.error("Could not delete promotion.");
     }
@@ -365,7 +344,7 @@ export default function AdminPromotionsPage() {
   const handleToggleActive = async (promo: Promotion) => {
     if (!isUuid(promo.id)) {
       togglePromotionActiveLocal(promo.id);
-      setVouchers(useDataStore.getState().promotions);
+      requestServerDataSync();
       toast.success(
         `"${promo.name}" is now ${!promo.is_active ? "active" : "inactive"}.`
       );
@@ -389,7 +368,7 @@ export default function AdminPromotionsPage() {
       toast.success(
         `"${promo.name}" is now ${!promo.is_active ? "active" : "inactive"}.`
       );
-      await refresh();
+      await pullPromotions();
     } catch {
       toast.error("Could not update promotion.");
     }
@@ -626,7 +605,7 @@ export default function AdminPromotionsPage() {
         </ul>
       </div>
 
-      {loading ? (
+      {!hydrated ? (
         <div className="flex justify-center py-12 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>

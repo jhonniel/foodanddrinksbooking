@@ -2,6 +2,15 @@ import type { Promotion, Reward } from "@/types";
 import { loadCatalog } from "@/services/catalogService";
 import { fetchExpenses } from "@/services/expenseService";
 
+export const DATA_SYNC_EVENT = "foodbooking:sync-data";
+
+/** Ask all mounted sync providers/tabs to pull fresh data from Supabase now. */
+export function requestServerDataSync() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(DATA_SYNC_EVENT));
+  }
+}
+
 export async function fetchPromotions(): Promise<{
   configured: boolean;
   promotions: Promotion[];
@@ -44,14 +53,20 @@ export async function fetchRewards(): Promise<{
   };
 }
 
+/**
+ * Replace in-memory catalog/expenses/promotions/rewards with Supabase truth.
+ * Always overwrites local slices on successful API responses so other admin
+ * sessions cannot keep showing deleted rows.
+ */
 export async function syncAllDataFromServer(): Promise<void> {
   const { useDataStore } = await import("@/stores/data");
   const store = useDataStore.getState();
 
-  const [catalog, promotions, rewards] = await Promise.all([
+  const [catalog, promotions, rewards, expenses] = await Promise.all([
     loadCatalog(),
     fetchPromotions(),
     fetchRewards(),
+    fetchExpenses(),
   ]);
 
   if (catalog.configured) {
@@ -70,7 +85,6 @@ export async function syncAllDataFromServer(): Promise<void> {
     store.setRewards(rewards.rewards);
   }
 
-  const expenses = await fetchExpenses();
   if (!expenses.error) {
     store.setExpenses(expenses.expenses);
   }

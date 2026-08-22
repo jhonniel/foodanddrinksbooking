@@ -2,13 +2,17 @@
 
 import { useEffect } from "react";
 import { clearLegacyDataStorage } from "@/lib/storage/clearLegacyStorage";
-import { syncAllDataFromServer } from "@/services/dataSyncService";
+import {
+  DATA_SYNC_EVENT,
+  syncAllDataFromServer,
+} from "@/services/dataSyncService";
 
-const POLL_MS = 12_000;
+const POLL_MS = 4_000;
 
 /**
  * Loads catalog, promotions, rewards, and staff expenses from Supabase.
- * Replaces all Zustand persist slices — nothing is stored in localStorage.
+ * Replaces in-memory Zustand slices on every successful pull so deletes on
+ * one admin account disappear on others within a few seconds.
  */
 export function DataSyncProvider() {
   useEffect(() => {
@@ -24,10 +28,24 @@ export function DataSyncProvider() {
     };
 
     void sync();
-    const id = window.setInterval(() => void sync(), POLL_MS);
+    const intervalId = window.setInterval(() => void sync(), POLL_MS);
+
+    const onFocus = () => void sync();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void sync();
+    };
+    const onSyncRequest = () => void sync();
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener(DATA_SYNC_EVENT, onSyncRequest);
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(DATA_SYNC_EVENT, onSyncRequest);
     };
   }, []);
 

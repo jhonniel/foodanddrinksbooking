@@ -134,7 +134,11 @@ export async function removeInventoryRemote(
   inventoryItemId: string
 ): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
   if (!isUuid(inventoryItemId)) {
-    return { ok: true, skipped: true };
+    return {
+      ok: false,
+      skipped: true,
+      error: "This item is not saved in Supabase yet.",
+    };
   }
 
   const res = await fetch("/api/catalog/inventory", {
