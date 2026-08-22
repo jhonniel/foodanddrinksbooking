@@ -8,6 +8,11 @@ import {
   EXPENSE_CATEGORY_LABELS,
   computeFinance,
 } from "@/services/financeService";
+import {
+  createExpenseRemote,
+  deleteExpenseRemote,
+} from "@/services/expenseService";
+import { useExpensesSync } from "@/hooks/useExpensesSync";
 import { useAppStore } from "@/stores/app";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { Button } from "@/components/ui/button";
@@ -38,13 +43,17 @@ const EXPENSE_CATEGORIES = Object.keys(
 ) as ExpenseCategory[];
 
 export default function AdminExpensesPage() {
+  useExpensesSync();
+
   const orders = useAppStore((s) => s.orders);
   const expenses = useDataStore((s) => s.expenses);
-  const addExpense = useDataStore((s) => s.addExpense);
+  const prependExpense = useDataStore((s) => s.prependExpense);
   const deleteExpense = useDataStore((s) => s.deleteExpense);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<ExpenseCategory>("SUPPLIES");
@@ -75,7 +84,7 @@ export default function AdminExpensesPage() {
     setIncurredAt(new Date().toISOString().slice(0, 10));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const parsed = parseFloat(amount);
     if (!title.trim()) {
       toast.error("Expense title is required.");
@@ -90,24 +99,47 @@ export default function AdminExpensesPage() {
       ? new Date(`${incurredAt}T12:00:00`)
       : new Date();
 
-    addExpense({
-      title: title.trim(),
-      category,
-      amount: parsed,
-      notes: notes.trim() || undefined,
-      incurredAt: day.toISOString(),
-    });
+    setSaving(true);
+    try {
+      const result = await createExpenseRemote({
+        title: title.trim(),
+        category,
+        amount: parsed,
+        notes: notes.trim() || undefined,
+        incurredAt: day.toISOString(),
+      });
 
-    toast.success("Expense recorded.");
-    setDialogOpen(false);
-    resetForm();
+      if (result.error || !result.expense) {
+        toast.error(result.error || "Could not save expense.");
+        return;
+      }
+
+      prependExpense(result.expense);
+      toast.success("Expense recorded.");
+      setDialogOpen(false);
+      resetForm();
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
-    deleteExpense(deleteTarget.id);
-    toast.success("Expense removed.");
-    setDeleteTarget(null);
+
+    setDeleting(true);
+    try {
+      const result = await deleteExpenseRemote(deleteTarget.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      deleteExpense(deleteTarget.id);
+      toast.success("Expense removed.");
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -195,9 +227,10 @@ export default function AdminExpensesPage() {
               </div>
               <Button
                 className="w-full bg-green hover:bg-green/90"
-                onClick={handleSave}
+                onClick={() => void handleSave()}
+                disabled={saving}
               >
-                Save expense
+                {saving ? "Saving…" : "Save expense"}
               </Button>
             </div>
           </DialogContent>
@@ -207,7 +240,7 @@ export default function AdminExpensesPage() {
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          if (!open && !deleting) setDeleteTarget(null);
         }}
       >
         <DialogContent className="sm:max-w-md" showCloseButton={false}>
@@ -230,6 +263,7 @@ export default function AdminExpensesPage() {
             <Button
               type="button"
               variant="outline"
+              disabled={deleting}
               onClick={() => setDeleteTarget(null)}
             >
               Cancel
@@ -237,9 +271,10 @@ export default function AdminExpensesPage() {
             <Button
               type="button"
               variant="destructive"
-              onClick={handleConfirmDelete}
+              disabled={deleting}
+              onClick={() => void handleConfirmDelete()}
             >
-              Delete expense
+              {deleting ? "Deleting…" : "Delete expense"}
             </Button>
           </DialogFooter>
         </DialogContent>

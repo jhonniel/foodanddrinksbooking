@@ -19,6 +19,11 @@ import {
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
+import { useExpensesSync } from "@/hooks/useExpensesSync";
+import {
+  createExpenseRemote,
+  deleteExpenseRemote,
+} from "@/services/expenseService";
 import { StatsCard } from "@/components/shared/StatsCard";
 import {
   computeAnalytics,
@@ -46,6 +51,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -62,7 +69,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import type { ExpenseCategory } from "@/types";
+import type { Expense, ExpenseCategory } from "@/types";
 
 const PIE_COLORS = ["#1FA7E1", "#176B3A", "#0B2A4A", "#2E8B57", "#94a3b8"];
 
@@ -71,12 +78,17 @@ const EXPENSE_CATEGORIES = Object.keys(
 ) as ExpenseCategory[];
 
 export default function AdminReportsPage() {
+  useExpensesSync();
+
   const orders = useAppStore((s) => s.orders);
   const expenses = useDataStore((s) => s.expenses);
-  const addExpense = useDataStore((s) => s.addExpense);
+  const prependExpense = useDataStore((s) => s.prependExpense);
   const deleteExpense = useDataStore((s) => s.deleteExpense);
   const [range, setRange] = useState("7d");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<ExpenseCategory>("SUPPLIES");
@@ -108,7 +120,7 @@ export default function AdminReportsPage() {
     [expenses]
   );
 
-  const handleAddExpense = () => {
+  const handleAddExpense = async () => {
     const parsed = parseFloat(amount);
     if (!title.trim()) {
       toast.error("Expense title is required.");
@@ -118,22 +130,98 @@ export default function AdminReportsPage() {
       toast.error("Enter a valid amount.");
       return;
     }
-    addExpense({
-      title: title.trim(),
-      category,
-      amount: parsed,
-      notes: notes.trim() || undefined,
-    });
-    toast.success("Expense recorded.");
-    setDialogOpen(false);
-    setTitle("");
-    setAmount("");
-    setNotes("");
-    setCategory("SUPPLIES");
+
+    setSaving(true);
+    try {
+      const result = await createExpenseRemote({
+        title: title.trim(),
+        category,
+        amount: parsed,
+        notes: notes.trim() || undefined,
+        incurredAt: new Date().toISOString(),
+      });
+
+      if (result.error || !result.expense) {
+        toast.error(result.error || "Could not save expense.");
+        return;
+      }
+
+      prependExpense(result.expense);
+      toast.success("Expense recorded.");
+      setDialogOpen(false);
+      setTitle("");
+      setAmount("");
+      setNotes("");
+      setCategory("SUPPLIES");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    try {
+      const result = await deleteExpenseRemote(deleteTarget.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      deleteExpense(deleteTarget.id);
+      toast.success("Expense removed.");
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
     <div className="space-y-6 p-4 lg:p-6">
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete expense?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget ? (
+                <>
+                  This will permanently remove{" "}
+                  <span className="font-medium text-foreground">
+                    {deleteTarget.title}
+                  </span>{" "}
+                  ({formatCurrency(deleteTarget.amount)}) for all admins. This
+                  action cannot be undone.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-t-0 bg-transparent p-0 pt-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void handleConfirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete expense"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-navy">Reports</h1>
@@ -321,9 +409,10 @@ export default function AdminReportsPage() {
                 </div>
                 <Button
                   className="w-full bg-green hover:bg-green/90"
-                  onClick={handleAddExpense}
+                  onClick={() => void handleAddExpense()}
+                  disabled={saving}
                 >
-                  Save expense
+                  {saving ? "Saving…" : "Save expense"}
                 </Button>
               </div>
             </DialogContent>
@@ -377,10 +466,8 @@ export default function AdminReportsPage() {
                     size="sm"
                     variant="outline"
                     className="text-destructive"
-                    onClick={() => {
-                      deleteExpense(expense.id);
-                      toast.success("Expense removed.");
-                    }}
+                    aria-label={`Delete ${expense.title}`}
+                    onClick={() => setDeleteTarget(expense)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

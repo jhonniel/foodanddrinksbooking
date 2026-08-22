@@ -299,8 +299,10 @@ interface DataState {
   updateCustomer: (id: string, updates: Partial<Profile>) => void;
 
   addExpense: (input: CreateExpenseInput) => Expense;
+  prependExpense: (expense: Expense) => void;
   updateExpense: (id: string, updates: Partial<Expense>) => void;
   deleteExpense: (id: string) => void;
+  setExpenses: (expenses: Expense[]) => void;
 
   resetToSeed: () => void;
 }
@@ -826,6 +828,14 @@ export const useDataStore = create<DataState>()(
         return expense;
       },
 
+      prependExpense: (expense) =>
+        set((s) => ({
+          expenses: [
+            expense,
+            ...s.expenses.filter((e) => e.id !== expense.id),
+          ],
+        })),
+
       updateExpense: (id, updates) =>
         set((s) => ({
           expenses: s.expenses.map((e) =>
@@ -839,6 +849,8 @@ export const useDataStore = create<DataState>()(
         set((s) => ({
           expenses: s.expenses.filter((e) => e.id !== id),
         })),
+
+      setExpenses: (expenses) => set({ expenses }),
 
       resetToSeed: () =>
         set({
@@ -865,7 +877,6 @@ export const useDataStore = create<DataState>()(
         inventory: state.inventory,
         rewards: state.rewards,
         promotions: state.promotions,
-        expenses: state.expenses,
         deductedOrderIds: state.deductedOrderIds,
       }),
       onRehydrateStorage: () => (state) => {
@@ -877,7 +888,7 @@ export const useDataStore = create<DataState>()(
             : { ...p, recipes: recipesForProduct(p.id) }
         );
         if (!state.deductedOrderIds) state.deductedOrderIds = [];
-        if (!state.expenses) state.expenses = seedExpenses();
+        state.expenses = [];
         state.promotions = state.promotions.map((p) => ({
           ...p,
           redemption_mode: p.redemption_mode ?? ("CLAIM" as const),

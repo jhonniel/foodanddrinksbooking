@@ -27,6 +27,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Stagger, StaggerItem, Reveal } from "@/components/motion";
 import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
+import { useExpensesSync } from "@/hooks/useExpensesSync";
 import { formatCurrency, relativeTime } from "@/lib/utils/format";
 import { ORDER_STATUS_LABELS } from "@/lib/constants";
 import {
@@ -66,6 +67,8 @@ function buildTopDrinks(
 }
 
 export default function AdminDashboardPage() {
+  useExpensesSync();
+
   const orders = useAppStore((s) => s.orders);
   const deliveries = useAppStore((s) => s.deliveries);
   const inventory = useDataStore((s) => s.inventory);
