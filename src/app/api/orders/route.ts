@@ -14,6 +14,8 @@ import {
   createOrderInSupabase,
   fetchOrdersFromSupabase,
 } from "@/lib/supabase/orders";
+import { fetchCatalogFromSupabase } from "@/lib/supabase/catalog";
+import { validateCartStock } from "@/lib/cart/stockLimits";
 import { assertDeliveryWithinSamal } from "@/lib/delivery/samal";
 import type { CartItem, PaymentMethod, OrderType } from "@/types";
 
@@ -243,6 +245,24 @@ export async function POST(request: NextRequest) {
   }
 
   const items = toCartItems(data.items);
+
+  const catalog = await fetchCatalogFromSupabase();
+  if (!catalog) {
+    return NextResponse.json(
+      { error: "Could not verify product availability. Try again." },
+      { status: 503 }
+    );
+  }
+
+  const stockCheck = validateCartStock(
+    items,
+    catalog.products,
+    catalog.inventory
+  );
+  if (!stockCheck.ok) {
+    return NextResponse.json({ error: stockCheck.message }, { status: 422 });
+  }
+
   const address =
     data.orderType === "DELIVERY"
       ? {

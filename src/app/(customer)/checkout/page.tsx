@@ -21,6 +21,8 @@ import { useCartStore, formatCartOptions, getCartItemPrice } from "@/stores/cart
 import { useCartTotals } from "@/hooks/useCartTotals";
 import { useAuthStore } from "@/stores/auth";
 import { useAppStore } from "@/stores/app";
+import { useDataStore } from "@/stores/data";
+import { validateCartStock } from "@/lib/cart/stockLimits";
 import { fetchCurrentProfile } from "@/services/authService";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
@@ -59,6 +61,9 @@ export default function CheckoutPage() {
   const pointsToUse = useCartStore((s) => s.pointsToUse);
   const setDeliveryLocation = useCartStore((s) => s.setDeliveryLocation);
   const clearCart = useCartStore((s) => s.clearCart);
+  const normalizeCart = useCartStore((s) => s.normalizeCart);
+  const products = useDataStore((s) => s.products);
+  const inventory = useDataStore((s) => s.inventory);
   const { subtotal, deliveryQuote, deliveryFee, total } = useCartTotals();
 
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -108,6 +113,10 @@ export default function CheckoutPage() {
       );
     }
   }, [selectedAddress, addresses, setDeliveryLocation]);
+
+  useEffect(() => {
+    normalizeCart();
+  }, [normalizeCart, products, inventory]);
 
   if (items.length === 0) {
     return (
@@ -159,6 +168,15 @@ export default function CheckoutPage() {
       return;
     }
 
+    normalizeCart();
+    const latestItems = useCartStore.getState().items;
+    const stockCheck = validateCartStock(latestItems, products, inventory);
+    if (!stockCheck.ok) {
+      toast.error(stockCheck.message);
+      router.push("/cart");
+      return;
+    }
+
     const payload = {
       orderType,
       paymentMethod,
@@ -168,7 +186,7 @@ export default function CheckoutPage() {
       longitude: address?.longitude ?? undefined,
       deliveryInstructions:
         instructions || address?.delivery_instructions || undefined,
-      items: items.map((item) => ({
+      items: latestItems.map((item) => ({
         ...item,
         productImage: item.productImage ?? null,
         options: (item.options ?? []).map((o) => ({

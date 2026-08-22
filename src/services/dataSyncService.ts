@@ -75,6 +75,9 @@ export async function syncAllDataFromServer(): Promise<void> {
       products: catalog.products,
       inventory: catalog.inventory,
     });
+
+    const { useCartStore } = await import("@/stores/cart");
+    useCartStore.getState().normalizeCart();
   }
 
   if (promotions.configured) {

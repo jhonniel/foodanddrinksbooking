@@ -171,22 +171,25 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = () => {
     if (!product || !orderable) return;
-    const added = addItem({
-      productId: product.id,
-      productName: product.name,
-      productImage: product.image_url ?? null,
-      basePrice: product.base_price,
-      quantity,
-      options: cartOptions.map((o) => ({
-        ...o,
-        priceAdjustment: o.priceAdjustment ?? 0,
-      })),
-      addons: cartAddons.map((a) => ({
-        ...a,
-        price: a.price ?? 0,
-        quantity: a.quantity ?? 1,
-      })),
-    });
+    const added = addItem(
+      {
+        productId: product.id,
+        productName: product.name,
+        productImage: product.image_url ?? null,
+        basePrice: product.base_price,
+        quantity,
+        options: cartOptions.map((o) => ({
+          ...o,
+          priceAdjustment: o.priceAdjustment ?? 0,
+        })),
+        addons: cartAddons.map((a) => ({
+          ...a,
+          price: a.price ?? 0,
+          quantity: a.quantity ?? 1,
+        })),
+      },
+      product
+    );
     if (!added) return;
     toast.success(`${product.name} added to cart`);
     router.push("/cart");

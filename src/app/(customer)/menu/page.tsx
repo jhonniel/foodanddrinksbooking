@@ -23,60 +23,18 @@ import type { Category, Product } from "@/types";
 import { UtensilsCrossed } from "lucide-react";
 import { DeliveryLocationGate } from "@/components/customer/DeliveryLocationGate";
 
-const CATEGORY_HIGHLIGHTS = [
-  { bar: "bg-amber-400", tint: "bg-amber-50/80", ring: "ring-amber-100" },
-  { bar: "bg-green", tint: "bg-green/5", ring: "ring-green/10" },
-  { bar: "bg-sky", tint: "bg-sky/5", ring: "ring-sky/10" },
-  { bar: "bg-amber-600", tint: "bg-amber-50/80", ring: "ring-amber-100" },
-] as const;
-
-function MenuCategorySection({
-  category,
-  products,
-  highlightIndex,
-  onAdd,
-}: {
-  category: Category;
-  products: Product[];
-  highlightIndex: number;
-  onAdd: (product: Product) => void;
-}) {
-  const accent =
-    CATEGORY_HIGHLIGHTS[highlightIndex % CATEGORY_HIGHLIGHTS.length];
-
-  return (
-    <section
-      className={cn(
-        "overflow-hidden rounded-2xl bg-white shadow-card ring-1",
-        accent.ring
-      )}
-    >
-      <div className={cn("relative px-4 py-3.5", accent.tint)}>
-        <h2 className="text-lg font-bold text-navy">{category.name}</h2>
-        <div
-          className={cn("absolute inset-x-0 bottom-0 h-1", accent.bar)}
-          aria-hidden
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-3 lg:grid-cols-4">
-        {products.map((product) => (
-          <ProductCard key={product.id} product={product} onAdd={onAdd} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function MenuContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const addItem = useCartStore((s) => s.addItem);
+  const normalizeCart = useCartStore((s) => s.normalizeCart);
   const promoCode = useCartStore((s) => s.promoCode);
   const promoDiscount = useCartStore((s) => s.promoDiscount);
   const cartSubtotal = useCartStore((s) => s.subtotal());
   const setPromo = useCartStore((s) => s.setPromo);
   const storeProducts = useDataStore((s) => s.products);
   const storeCategories = useDataStore((s) => s.categories);
+  const inventory = useDataStore((s) => s.inventory);
 
   const categoryParam = searchParams.get("category") ?? "";
   const sortParam = (searchParams.get("sort") as
@@ -137,12 +95,16 @@ function MenuContent() {
     };
   }, [promoCode, cartSubtotal, promoDiscount, setPromo]);
 
+  useEffect(() => {
+    normalizeCart();
+  }, [normalizeCart, storeProducts, inventory]);
+
   const handleAdd = (product: Product) => {
     if (product.options?.length) {
       router.push(`/menu/${product.slug}`);
       return;
     }
-    if (!addItem(buildDefaultCartItem(product))) return;
+    if (!addItem(buildDefaultCartItem(product), product)) return;
     toast.success(`${product.name} added to cart`);
   };
 
@@ -293,15 +255,20 @@ function MenuContent() {
           }}
         />
       ) : productsByCategory ? (
-        <div className="space-y-6">
-          {productsByCategory.map(({ category, products: categoryProducts }, index) => (
-            <MenuCategorySection
-              key={category.id}
-              category={category}
-              products={categoryProducts}
-              highlightIndex={index}
-              onAdd={handleAdd}
-            />
+        <div className="space-y-8">
+          {productsByCategory.map(({ category, products: categoryProducts }) => (
+            <section key={category.id}>
+              <h2 className="mb-3 text-lg font-bold text-navy">{category.name}</h2>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+                {categoryProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onAdd={handleAdd}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       ) : (

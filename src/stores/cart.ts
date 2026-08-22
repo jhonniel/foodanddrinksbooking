@@ -17,6 +17,9 @@ import {
   getCartProductQuantity,
   getProductCanMake,
   maxStockToastMessage,
+  resolveProductForStock,
+  unavailableStockToastMessage,
+  type ProductStockSource,
 } from "@/lib/cart/stockLimits";
 import { useDataStore } from "@/stores/data";
 
@@ -29,7 +32,10 @@ interface CartState {
   orderType: "DELIVERY" | "PICKUP";
   deliveryLocation: LatLng | null;
   deliveryAddressLabel: string | null;
-  addItem: (item: Omit<CartItem, "id">) => boolean;
+  addItem: (
+    item: Omit<CartItem, "id">,
+    sourceProduct?: ProductStockSource
+  ) => boolean;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   normalizeCart: () => void;
@@ -102,61 +108,59 @@ export const useCartStore = create<CartState>()((set, get) => ({
       deliveryLocation: DEFAULT_DELIVERY,
       deliveryAddressLabel: null,
 
-      addItem: (item) => {
+      addItem: (item, sourceProduct) => {
         const { products, inventory } = getCatalogState();
-        const product = products.find((p) => p.id === item.productId);
+        const product = resolveProductForStock(
+          item.productId,
+          products,
+          sourceProduct
+        );
         const qtyRequested = Math.max(1, item.quantity ?? 1);
         const signature = cartItemSignature(item);
         let capped = false;
         let added = false;
 
+        if (!product) {
+          toast.error(unavailableStockToastMessage(item.productName));
+          return false;
+        }
+
         set((s) => {
           let items = consolidateCartItems(s.items);
           const existing = items.find((i) => cartItemSignature(i) === signature);
+          const inCart = getCartProductQuantity(items, item.productId);
+          const canMake = getProductCanMake(product, inventory);
+          const remaining = Math.max(0, canMake - inCart);
 
-          if (product) {
-            const inCart = getCartProductQuantity(items, item.productId);
-            const canMake = getProductCanMake(product, inventory);
-            const remaining = Math.max(0, canMake - inCart);
+          if (remaining <= 0) {
+            capped = true;
+            return { items };
+          }
 
-            if (remaining <= 0) {
-              capped = true;
-              return { items };
-            }
-
-            const qtyToAdd = Math.min(qtyRequested, remaining);
-            if (qtyToAdd < qtyRequested) capped = true;
-            added = qtyToAdd > 0;
-
-            if (existing) {
-              items = items.map((i) =>
-                i.id === existing.id
-                  ? { ...i, quantity: i.quantity + qtyToAdd }
-                  : i
-              );
-            } else {
-              const id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-              items = [...items, { ...item, quantity: qtyToAdd, id }];
-            }
-
-            return { items: clampCartToStockLimits(items, products, inventory) };
+          const qtyToAdd = Math.min(qtyRequested, remaining);
+          if (qtyToAdd < qtyRequested) capped = true;
+          if (qtyToAdd <= 0) {
+            capped = true;
+            return { items };
           }
 
           added = true;
+
           if (existing) {
             items = items.map((i) =>
               i.id === existing.id
-                ? { ...i, quantity: i.quantity + qtyRequested }
+                ? { ...i, quantity: i.quantity + qtyToAdd }
                 : i
             );
           } else {
             const id = `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            items = [...items, { ...item, quantity: qtyRequested, id }];
+            items = [...items, { ...item, quantity: qtyToAdd, id }];
           }
-          return { items };
+
+          return { items: clampCartToStockLimits(items, products, inventory) };
         });
 
-        if (capped && product) {
+        if (capped) {
           toast.error(maxStockToastMessage(product.name));
         }
 
@@ -181,14 +185,16 @@ export const useCartStore = create<CartState>()((set, get) => ({
           const item = items.find((i) => i.id === id);
           if (!item) return { items };
 
-          const product = products.find((p) => p.id === item.productId);
+          const product = resolveProductForStock(item.productId, products);
           if (!product) {
-            return {
-              items: items.map((i) => (i.id === id ? { ...i, quantity } : i)),
-            };
+            if (quantity > item.quantity) {
+              capped = true;
+              productName = item.productName;
+            }
+            return { items };
           }
 
-          productName = item.productName;
+          productName = product.name;
           const otherQty = getCartProductQuantity(items, item.productId, id);
           const maxForLine = Math.max(
             0,

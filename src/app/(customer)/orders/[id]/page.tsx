@@ -106,7 +106,8 @@ export default function OrderDetailPage() {
     }
 
     order.items.forEach((item) => {
-      addItem(orderItemToCartItem(item));
+      const product = products.find((p) => p.id === item.product_id);
+      addItem(orderItemToCartItem(item), product);
     });
     toast.success("Items added to cart");
     router.push("/cart");

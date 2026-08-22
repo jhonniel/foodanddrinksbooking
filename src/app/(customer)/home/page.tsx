@@ -48,7 +48,7 @@ export default function HomePage() {
   }, [storeProducts, storeCategories, storePromotions]);
 
   const handleQuickAdd = (product: Product) => {
-    if (!addItem(buildDefaultCartItem(product))) return;
+    if (!addItem(buildDefaultCartItem(product), product)) return;
     toast.success(`${product.name} added to cart`);
   };
 

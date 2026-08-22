@@ -72,6 +72,79 @@ export function unavailableStockToastMessage(productName: string): string {
   return `${productName} is currently unavailable.`;
 }
 
+export type ProductStockSource = Pick<
+  Product,
+  "id" | "name" | "recipes" | "is_available"
+>;
+
+export function resolveProductForStock(
+  productId: string,
+  products: Product[],
+  sourceProduct?: ProductStockSource
+): ProductStockSource | undefined {
+  if (sourceProduct && sourceProduct.id === productId) return sourceProduct;
+  return products.find((product) => product.id === productId);
+}
+
+export function getAddableQuantity(
+  product: ProductStockSource,
+  inventory: InventoryItem[],
+  cartItems: Pick<CartItem, "id" | "productId" | "quantity">[],
+  quantityRequested: number
+): number {
+  const inCart = getCartProductQuantity(cartItems, product.id);
+  const canMake = getProductCanMake(product, inventory);
+  const remaining = Math.max(0, canMake - inCart);
+  return Math.min(Math.max(1, quantityRequested), remaining);
+}
+
+export function validateCartStock(
+  items: Pick<CartItem, "productId" | "quantity" | "productName">[],
+  products: Product[],
+  inventory: InventoryItem[]
+): { ok: true } | { ok: false; message: string } {
+  const neededByProduct = new Map<string, { name: string; quantity: number }>();
+
+  for (const item of items) {
+    const existing = neededByProduct.get(item.productId);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      neededByProduct.set(item.productId, {
+        name: item.productName,
+        quantity: item.quantity,
+      });
+    }
+  }
+
+  for (const [productId, { name, quantity }] of neededByProduct) {
+    const product = resolveProductForStock(productId, products);
+    if (!product) {
+      return {
+        ok: false,
+        message: `${name} is no longer available.`,
+      };
+    }
+
+    const canMake = getProductCanMake(product, inventory);
+    if (canMake <= 0) {
+      return {
+        ok: false,
+        message: unavailableStockToastMessage(product.name),
+      };
+    }
+
+    if (quantity > canMake) {
+      return {
+        ok: false,
+        message: maxStockToastMessage(product.name),
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 /** Trim cart lines so total per product never exceeds can-make. */
 export function clampCartToStockLimits(
   items: CartItem[],
@@ -82,11 +155,8 @@ export function clampCartToStockLimits(
   const result: CartItem[] = [];
 
   for (const item of items) {
-    const product = products.find((p) => p.id === item.productId);
-    if (!product) {
-      result.push(item);
-      continue;
-    }
+    const product = resolveProductForStock(item.productId, products);
+    if (!product) continue;
 
     const canMake = getProductCanMake(product, inventory);
     const used = usedByProduct.get(item.productId) ?? 0;
