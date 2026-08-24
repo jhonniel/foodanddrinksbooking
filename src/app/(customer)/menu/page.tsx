@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getCategories, getProducts, validatePromoCode } from "@/services/productService";
+import { selectCategories, selectProducts, validatePromoCode } from "@/services/productService";
 import { useCartStore } from "@/stores/cart";
 import { useDataStore } from "@/stores/data";
 import { buildDefaultCartItem } from "@/lib/cartHelpers";
@@ -27,7 +27,6 @@ function MenuContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const addItem = useCartStore((s) => s.addItem);
-  const normalizeCart = useCartStore((s) => s.normalizeCart);
   const promoCode = useCartStore((s) => s.promoCode);
   const promoDiscount = useCartStore((s) => s.promoDiscount);
   const cartSubtotal = useCartStore((s) => s.subtotal());
@@ -46,10 +45,24 @@ function MenuContent() {
     | "newest"
     | null) ?? "popular";
 
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
-  const [loading, setLoading] = useState(true);
+
+  const categories = useMemo(
+    () => selectCategories(),
+    [storeCategories]
+  );
+
+  const products = useMemo(
+    () =>
+      selectProducts({
+        categorySlug: categoryParam || undefined,
+        search: search || undefined,
+        sort: sortParam,
+      }),
+    [categoryParam, search, sortParam, storeProducts, storeCategories, inventory]
+  );
+
+  const loading = !catalogHydrated;
 
   const updateParams = useCallback(
     (updates: Record<string, string | null>) => {
@@ -62,22 +75,6 @@ function MenuContent() {
     },
     [router, searchParams]
   );
-
-  useEffect(() => {
-    getCategories().then(setCategories);
-  }, [storeCategories]);
-
-  useEffect(() => {
-    setLoading(true);
-    getProducts({
-      categorySlug: categoryParam || undefined,
-      search: search || undefined,
-      sort: sortParam,
-    }).then((items) => {
-      setProducts(items);
-      setLoading(false);
-    });
-  }, [categoryParam, search, sortParam, storeProducts]);
 
   useEffect(() => {
     if (!promoCode || cartSubtotal <= 0 || promoDiscount > 0) return;
@@ -95,11 +92,6 @@ function MenuContent() {
       cancelled = true;
     };
   }, [promoCode, cartSubtotal, promoDiscount, setPromo]);
-
-  useEffect(() => {
-    if (!catalogHydrated) return;
-    normalizeCart();
-  }, [normalizeCart, storeProducts, inventory, catalogHydrated]);
 
   const handleAdd = (product: Product) => {
     if (product.options?.length) {

@@ -7,17 +7,13 @@ function getState() {
   return useDataStore.getState();
 }
 
-export async function getCategories(): Promise<Category[]> {
+export function selectCategories(): Category[] {
   return getState()
     .categories.filter((c) => c.is_active)
     .sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export async function getAllCategories(): Promise<Category[]> {
-  return [...getState().categories].sort((a, b) => a.sort_order - b.sort_order);
-}
-
-export async function getProducts(filters?: {
+export function selectProducts(filters?: {
   categoryId?: string;
   categorySlug?: string;
   search?: string;
@@ -25,7 +21,7 @@ export async function getProducts(filters?: {
   bestSeller?: boolean;
   availableOnly?: boolean;
   sort?: "price_asc" | "price_desc" | "rating" | "popular" | "newest";
-}): Promise<Product[]> {
+}): Product[] {
   const { products, categories, addons, inventory } = getState();
   let list = [...products];
 
@@ -74,6 +70,26 @@ export async function getProducts(filters?: {
     addons: p.addons?.length ? p.addons : addons,
     options: p.options,
   }));
+}
+
+export async function getCategories(): Promise<Category[]> {
+  return selectCategories();
+}
+
+export async function getAllCategories(): Promise<Category[]> {
+  return [...getState().categories].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+export async function getProducts(filters?: {
+  categoryId?: string;
+  categorySlug?: string;
+  search?: string;
+  featured?: boolean;
+  bestSeller?: boolean;
+  availableOnly?: boolean;
+  sort?: "price_asc" | "price_desc" | "rating" | "popular" | "newest";
+}): Promise<Product[]> {
+  return selectProducts(filters);
 }
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
