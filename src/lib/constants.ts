@@ -57,6 +57,21 @@ export const ORDERS_QUEUE_COLUMNS: { status: OrderStatus; label: string }[] =
     (c) => c.status !== "DELIVERED" && c.status !== "CANCELLED"
   );
 
+/** Active orders shown on the admin queue board (excludes delivered/cancelled). */
+export function countActiveQueueOrders(
+  orders: ReadonlyArray<{ status: OrderStatus }>
+): number {
+  return orders.filter(
+    (o) => o.status !== "DELIVERED" && o.status !== "CANCELLED"
+  ).length;
+}
+
+export function countPendingOrders(
+  orders: ReadonlyArray<{ status: OrderStatus }>
+): number {
+  return orders.filter((o) => o.status === "PENDING").length;
+}
+
 export const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
   PENDING: "CONFIRMED",
   CONFIRMED: "PREPARING",

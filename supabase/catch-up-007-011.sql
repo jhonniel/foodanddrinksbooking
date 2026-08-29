@@ -89,3 +89,8 @@ ALTER TABLE orders
 UPDATE app_settings
 SET value = COALESCE(value, '{}'::jsonb) || '{"baseFee": 30, "baseKm": 1, "perKmFee": 10}'::jsonb
 WHERE key = 'delivery';
+
+-- 016: loyalty earn rate (₱40 spent = 1 point)
+UPDATE loyalty_settings
+SET points_per_peso = 0.025
+WHERE points_per_peso = 1.0 OR points_per_peso IS NULL;

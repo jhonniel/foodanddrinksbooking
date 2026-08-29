@@ -3,6 +3,7 @@ import "server-only";
 import type { PointsTransaction, PointsTransactionType } from "@/types";
 import { createServerClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/auth/config";
+import { calculateOrderPointsEarned } from "@/services/loyaltyService";
 
 type OrdersClient = NonNullable<Awaited<ReturnType<typeof createServerClient>>>;
 
@@ -29,14 +30,11 @@ export function correctPointsEarnedForOrder(order: {
   points_discount?: number;
   delivery_fee?: number;
 }): number {
-  return Math.max(
-    0,
-    Math.floor(
-      Number(order.subtotal ?? 0) -
-        Number(order.discount ?? 0) -
-        Number(order.points_discount ?? 0)
-    )
-  );
+  return calculateOrderPointsEarned({
+    subtotal: Number(order.subtotal ?? 0),
+    discount: order.discount ?? 0,
+    pointsDiscount: order.points_discount ?? 0,
+  });
 }
 
 /**

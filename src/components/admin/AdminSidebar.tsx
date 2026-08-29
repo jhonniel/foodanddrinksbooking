@@ -30,6 +30,7 @@ import { Logo } from "@/components/shared/Logo";
 import { useAuthStore } from "@/stores/auth";
 import { hasPermission } from "@/lib/constants";
 import { NotificationBell } from "@/components/shared/NotificationBell";
+import { OrdersQueueBadge } from "@/components/admin/OrdersQueueBadge";
 import { fadeUp, staggerFast } from "@/components/motion";
 import type { UserRole } from "@/types";
 
@@ -116,7 +117,8 @@ export function AdminSidebar() {
                   )}
                 >
                   <Icon className="h-4.5 w-4.5 shrink-0" />
-                  {label}
+                  <span className="min-w-0 flex-1">{label}</span>
+                  {href === "/admin/orders" && <OrdersQueueBadge />}
                 </Link>
               </motion.div>
             );

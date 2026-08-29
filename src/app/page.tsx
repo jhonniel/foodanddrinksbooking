@@ -280,7 +280,7 @@ export default function LandingPage() {
             <Reveal>
               <h2 className="text-2xl font-bold sm:text-3xl">Earn Points. Get Rewards.</h2>
               <p className="mt-3 text-white/70">
-                Every peso spent earns a point. Redeem for discounts and free drinks.
+                Every ₱40 spent on items earns 1 point. Redeem for discounts and free drinks.
               </p>
               <Link
                 href="/rewards"

@@ -26,6 +26,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
+import { OrdersQueueBadge } from "@/components/admin/OrdersQueueBadge";
 import {
   Sheet,
   SheetContent,
@@ -101,7 +102,12 @@ export function AdminMobileNav() {
                     transition={{ type: "spring", stiffness: 380, damping: 30 }}
                   />
                 )}
-                <Icon className={cn("h-5 w-5", active && "stroke-[2.5px]")} />
+                <span className="relative">
+                  <Icon className={cn("h-5 w-5", active && "stroke-[2.5px]")} />
+                  {href === "/admin/orders" && (
+                    <OrdersQueueBadge variant="mobile" />
+                  )}
+                </span>
                 <span>{label}</span>
               </Link>
             </li>

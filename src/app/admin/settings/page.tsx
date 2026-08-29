@@ -6,6 +6,7 @@ import {
   STORE_LOCATION,
   LOYALTY_SETTINGS,
   DELIVERY_CONFIG,
+  PESOS_PER_POINT,
 } from "@/data/demo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,9 +30,7 @@ export default function AdminSettingsPage() {
   const [storeName, setStoreName] = useState(STORE_LOCATION.name);
   const [storeAddress, setStoreAddress] = useState(STORE_LOCATION.address);
   const [storePhone, setStorePhone] = useState(STORE_LOCATION.phone);
-  const [pointsPerPeso, setPointsPerPeso] = useState(
-    String(LOYALTY_SETTINGS.points_per_peso)
-  );
+  const [pesosPerPoint, setPesosPerPoint] = useState(String(PESOS_PER_POINT));
   const [minRedemption, setMinRedemption] = useState(
     String(LOYALTY_SETTINGS.min_redemption_points)
   );
@@ -667,13 +666,19 @@ export default function AdminSettingsPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label htmlFor="points-per-peso">Points per ₱1 spent</Label>
+                <Label htmlFor="pesos-per-point">₱ spent per 1 point</Label>
                 <Input
-                  id="points-per-peso"
+                  id="pesos-per-point"
                   type="number"
-                  value={pointsPerPeso}
-                  onChange={(e) => setPointsPerPeso(e.target.value)}
+                  min={1}
+                  value={pesosPerPoint}
+                  onChange={(e) => setPesosPerPoint(e.target.value)}
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Example: {pesosPerPoint || PESOS_PER_POINT} → a ₱
+                  {Number(pesosPerPoint || PESOS_PER_POINT) * 2} order earns 2
+                  points (items only, delivery excluded).
+                </p>
               </div>
               <div>
                 <Label htmlFor="min-redemption">Min redemption (pts)</Label>
