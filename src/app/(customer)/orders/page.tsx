@@ -41,8 +41,10 @@ function OrderCard({ order }: { order: Order }) {
         <div>
           <p className="font-bold text-navy">#{order.order_number}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {formatDateTime(order.created_at)} ·{" "}
-            {order.order_type === "DELIVERY" ? "Delivery" : "Pickup"}
+            {order.scheduled_at
+              ? `Scheduled ${formatDateTime(order.scheduled_at)}`
+              : formatDateTime(order.created_at)}{" "}
+            · {order.order_type === "DELIVERY" ? "Delivery" : "Pickup"}
           </p>
         </div>
         <StatusBadge status={order.status} />

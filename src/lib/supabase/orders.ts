@@ -193,6 +193,7 @@ function mapOrder(row: DbOrderRow): Order {
     points_earned: Number(row.points_earned ?? 0),
     points_used: Number(row.points_used ?? 0),
     estimated_prep_minutes: Number(row.estimated_prep_minutes ?? 15),
+    scheduled_at: (row.scheduled_at as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
     cancelled_reason: (row.cancelled_reason as string | null) ?? null,
     confirmed_at: (row.confirmed_at as string | null) ?? null,
@@ -428,6 +429,7 @@ export async function createOrderInSupabase(input: {
   pointsDiscount: number;
   pointsUsed: number;
   idempotencyKey?: string;
+  scheduledAt?: string | null;
 }): Promise<{ order?: Order; error?: string }> {
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured." };
@@ -518,6 +520,7 @@ export async function createOrderInSupabase(input: {
       points_earned: pointsEarned,
       points_used: input.pointsUsed,
       estimated_prep_minutes: 15,
+      scheduled_at: input.scheduledAt ?? null,
       idempotency_key: idempotencyKey,
     })
     .select("*")

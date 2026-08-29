@@ -36,8 +36,11 @@ export default function CartPage() {
   const inventory = useDataStore((s) => s.inventory);
   const catalogHydrated = useDataStore((s) => s.hydrated);
   const { purchaseSoon, storeOpen, storeClosedMessage } = useStoreSettings();
-  const checkoutBlocked = !storeOpen || purchaseSoon;
-  const checkoutBlockMessage = !storeOpen ? storeClosedMessage : PURCHASE_SOON_MESSAGE;
+  const fulfillmentTiming = useCartStore((s) => s.fulfillmentTiming);
+  const checkoutBlocked = purchaseSoon || (!storeOpen && fulfillmentTiming !== "SCHEDULED");
+  const checkoutBlockMessage = purchaseSoon
+    ? PURCHASE_SOON_MESSAGE
+    : storeClosedMessage;
   const {
     items,
     itemCount,
@@ -265,6 +268,17 @@ export default function CartPage() {
         {checkoutBlocked ? (
           <div className="mx-auto w-full max-w-lg space-y-2">
             <p className="text-center text-sm text-amber-900">{checkoutBlockMessage}</p>
+            {!purchaseSoon && !storeOpen ? (
+              <Link
+                href="/checkout"
+                onClick={() => {
+                  useCartStore.getState().setFulfillmentTiming("SCHEDULED");
+                }}
+                className="mx-auto flex h-12 w-full max-w-lg items-center justify-center rounded-xl bg-green text-base font-bold text-white hover:bg-green/90"
+              >
+                SCHEDULE FOR LATER
+              </Link>
+            ) : (
             <button
               type="button"
               disabled
@@ -272,6 +286,7 @@ export default function CartPage() {
             >
               CHECKOUT UNAVAILABLE
             </button>
+            )}
           </div>
         ) : (
           <Link

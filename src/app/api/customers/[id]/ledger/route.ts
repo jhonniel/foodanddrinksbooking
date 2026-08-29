@@ -54,6 +54,7 @@ function mapOrderLite(row: Record<string, unknown>): Order {
     points_earned: Number(row.points_earned ?? 0),
     points_used: Number(row.points_used ?? 0),
     estimated_prep_minutes: Number(row.estimated_prep_minutes ?? 15),
+    scheduled_at: (row.scheduled_at as string | null) ?? null,
     notes: null,
     cancelled_reason: (row.cancelled_reason as string | null) ?? null,
     confirmed_at: (row.confirmed_at as string | null) ?? null,

@@ -27,7 +27,8 @@ export function StoreClosedNotice({ variant = "banner" }: StoreClosedNoticeProps
               {storeClosedMessage}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              You can browse the menu now. Checkout opens during store hours.
+              You can browse the menu now. Checkout opens during store hours, or
+              schedule your order for later at checkout.
             </p>
           </div>
         </div>

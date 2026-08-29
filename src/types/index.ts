@@ -239,6 +239,8 @@ export interface Order {
   points_earned: number;
   points_used: number;
   estimated_prep_minutes: number;
+  /** Customer-requested fulfillment time (UTC ISO). Null = ASAP. */
+  scheduled_at: string | null;
   notes: string | null;
   cancelled_reason: string | null;
   confirmed_at: string | null;

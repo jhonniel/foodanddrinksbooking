@@ -121,6 +121,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       points_earned: pointsEarned,
       points_used: input.pointsUsed,
       estimated_prep_minutes: 15,
+      scheduled_at: null,
       notes: null,
       cancelled_reason: null,
       confirmed_at: null,

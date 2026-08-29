@@ -35,7 +35,12 @@ import {
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
 import { SAMAL_SERVICE_MESSAGE } from "@/lib/delivery/samal";
-import { formatWeeklySchedule } from "@/lib/storeHours";
+import {
+  formatScheduledDateTime,
+  formatWeeklySchedule,
+  isScheduledSlotValid,
+} from "@/lib/storeHours";
+import { ScheduleOrderPicker } from "@/components/customer/ScheduleOrderPicker";
 import type { Address, Order, PaymentMethod } from "@/types";
 
 const PAYMENT_METHODS: {
@@ -58,6 +63,10 @@ export default function CheckoutPage() {
   const items = useCartStore((s) => s.items);
   const orderType = useCartStore((s) => s.orderType);
   const setOrderType = useCartStore((s) => s.setOrderType);
+  const fulfillmentTiming = useCartStore((s) => s.fulfillmentTiming);
+  const scheduledAt = useCartStore((s) => s.scheduledAt);
+  const setFulfillmentTiming = useCartStore((s) => s.setFulfillmentTiming);
+  const setScheduledAt = useCartStore((s) => s.setScheduledAt);
   const promoCode = useCartStore((s) => s.promoCode);
   const promoDiscount = useCartStore((s) => s.promoDiscount);
   const pointsDiscount = useCartStore((s) => s.pointsDiscount);
@@ -140,23 +149,6 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!settingsLoading && !storeOpen) {
-    return (
-      <div className="py-16 text-center">
-        <h1 className="text-xl font-bold text-navy">Store closed</h1>
-        <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
-          {storeClosedMessage}
-        </p>
-        <Link
-          href="/cart"
-          className="mt-6 inline-flex items-center justify-center rounded-xl bg-green px-4 py-2 text-sm font-medium text-white hover:bg-green/90"
-        >
-          Back to Cart
-        </Link>
-      </div>
-    );
-  }
-
   if (!settingsLoading && purchaseSoon) {
     return (
       <div className="py-16 text-center">
@@ -185,13 +177,23 @@ export default function CheckoutPage() {
   };
 
   const handlePlaceOrder = async () => {
-    if (!storeOpen) {
-      toast.error(storeClosedMessage);
-      return;
-    }
     if (purchaseSoon) {
       toast.error(PURCHASE_SOON_MESSAGE);
       return;
+    }
+    if (fulfillmentTiming === "ASAP" && !storeOpen) {
+      toast.error(storeClosedMessage);
+      return;
+    }
+    if (fulfillmentTiming === "SCHEDULED") {
+      if (!scheduledAt) {
+        toast.error("Please choose when you want your order.");
+        return;
+      }
+      if (!isScheduledSlotValid(storeHours, new Date(scheduledAt))) {
+        toast.error("That schedule time is no longer available. Pick another slot.");
+        return;
+      }
     }
     // Session cookie can exist while the auth store is still empty — refresh first.
     let activeUser = user;
@@ -255,6 +257,8 @@ export default function CheckoutPage() {
       pointsDiscount: pointsDiscount ?? 0,
       pointsUsed: pointsToUse ?? 0,
       promoCode: promoCode ?? null,
+      scheduledAt:
+        fulfillmentTiming === "SCHEDULED" ? scheduledAt : null,
     };
 
     setPlacing(true);
@@ -350,6 +354,14 @@ export default function CheckoutPage() {
               </button>
             ))}
           </div>
+          <ScheduleOrderPicker
+            storeHours={storeHours}
+            fulfillmentTiming={fulfillmentTiming}
+            scheduledAt={scheduledAt}
+            storeOpen={storeOpen}
+            onTimingChange={setFulfillmentTiming}
+            onScheduledAtChange={setScheduledAt}
+          />
           {orderType === "PICKUP" && (
             <div className="rounded-2xl bg-light-blue p-4 text-sm">
               <p className="font-semibold text-navy">{STORE_LOCATION.name}</p>
@@ -359,6 +371,11 @@ export default function CheckoutPage() {
           )}
           <Button
             onClick={() => setStep(2)}
+            disabled={
+              fulfillmentTiming === "SCHEDULED" &&
+              (!scheduledAt ||
+                !isScheduledSlotValid(storeHours, new Date(scheduledAt)))
+            }
             className="h-12 w-full rounded-xl bg-green hover:bg-green/90"
           >
             Continue
@@ -620,6 +637,12 @@ export default function CheckoutPage() {
               {orderType === "DELIVERY" && address
                 ? address.full_address
                 : STORE_LOCATION.address}
+            </p>
+            <p className="mt-1">
+              <span className="font-semibold text-navy">When: </span>
+              {fulfillmentTiming === "SCHEDULED" && scheduledAt
+                ? formatScheduledDateTime(scheduledAt, storeHours.timezone)
+                : "As soon as possible"}
             </p>
             <p className="mt-1">
               <span className="font-semibold text-navy">Payment: </span>

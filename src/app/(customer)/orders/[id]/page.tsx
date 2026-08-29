@@ -197,8 +197,10 @@ export default function OrderDetailPage() {
             Order #{order.order_number}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {formatDateTime(order.created_at)} ·{" "}
-            {isDelivery ? "Delivery" : "Pickup"}
+            {order.scheduled_at
+              ? `Scheduled ${formatDateTime(order.scheduled_at)}`
+              : formatDateTime(order.created_at)}{" "}
+            · {isDelivery ? "Delivery" : "Pickup"}
           </p>
         </div>
         <StatusBadge status={order.status} />

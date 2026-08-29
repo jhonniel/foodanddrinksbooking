@@ -306,7 +306,9 @@ export default function AdminOrdersPage() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              {relativeTime(order.created_at)}
+                              {order.scheduled_at
+                                ? `Scheduled ${formatDateTime(order.scheduled_at)}`
+                                : relativeTime(order.created_at)}
                             </span>
                           </div>
                           <p className="mt-2 text-sm font-bold text-green">
@@ -395,6 +397,8 @@ export default function AdminOrdersPage() {
                 <SheetDescription>
                   {formatDateTime(selected.created_at)} ·{" "}
                   {selected.order_type === "PICKUP" ? "Pickup" : "Delivery"}
+                  {selected.scheduled_at &&
+                    ` · Scheduled ${formatDateTime(selected.scheduled_at)}`}
                 </SheetDescription>
               </SheetHeader>
 

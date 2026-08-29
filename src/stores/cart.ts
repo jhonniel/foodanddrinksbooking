@@ -33,6 +33,8 @@ interface CartState {
   orderType: "DELIVERY" | "PICKUP";
   deliveryLocation: LatLng | null;
   deliveryAddressLabel: string | null;
+  fulfillmentTiming: "ASAP" | "SCHEDULED";
+  scheduledAt: string | null;
   addItem: (
     item: Omit<CartItem, "id">,
     sourceProduct?: ProductStockSource
@@ -44,6 +46,8 @@ interface CartState {
   setPromo: (code: string | null, discount: number) => void;
   setPointsToUse: (points: number, discount: number) => void;
   setOrderType: (type: "DELIVERY" | "PICKUP") => void;
+  setFulfillmentTiming: (timing: "ASAP" | "SCHEDULED") => void;
+  setScheduledAt: (iso: string | null) => void;
   setDeliveryLocation: (
     location: LatLng | null,
     label?: string | null
@@ -116,6 +120,8 @@ export const useCartStore = create<CartState>()(
       orderType: "DELIVERY",
       deliveryLocation: DEFAULT_DELIVERY,
       deliveryAddressLabel: null,
+      fulfillmentTiming: "ASAP",
+      scheduledAt: null,
 
       addItem: (item, sourceProduct) => {
         const { products, inventory } = getCatalogState();
@@ -241,6 +247,8 @@ export const useCartStore = create<CartState>()(
           orderType: "DELIVERY",
           deliveryLocation: DEFAULT_DELIVERY,
           deliveryAddressLabel: null,
+          fulfillmentTiming: "ASAP",
+          scheduledAt: null,
         }),
 
       setPromo: (code, discount) =>
@@ -250,6 +258,14 @@ export const useCartStore = create<CartState>()(
         set({ pointsToUse: points, pointsDiscount: discount }),
 
       setOrderType: (orderType) => set({ orderType }),
+
+      setFulfillmentTiming: (fulfillmentTiming) =>
+        set({
+          fulfillmentTiming,
+          scheduledAt: fulfillmentTiming === "ASAP" ? null : get().scheduledAt,
+        }),
+
+      setScheduledAt: (scheduledAt) => set({ scheduledAt }),
 
       setDeliveryLocation: (location, label = null) =>
         set({
@@ -309,6 +325,8 @@ export const useCartStore = create<CartState>()(
         orderType: state.orderType,
         deliveryLocation: state.deliveryLocation,
         deliveryAddressLabel: state.deliveryAddressLabel,
+        fulfillmentTiming: state.fulfillmentTiming,
+        scheduledAt: state.scheduledAt,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

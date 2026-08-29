@@ -225,3 +225,153 @@ export function formatWeeklySchedule(settings: StoreHoursSettings): string {
     })
     .join(", ");
 }
+
+export const SCHEDULE_MIN_LEAD_MINUTES = 30;
+export const SCHEDULE_MAX_DAYS_AHEAD = 7;
+export const SCHEDULE_SLOT_MINUTES = 30;
+
+export function formatDateInTz(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+export function localDateTimeToUtc(
+  dateStr: string,
+  timeStr: string,
+  timeZone: string = STORE_TIMEZONE
+): Date {
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  const [h, mi] = timeStr.split(":").map(Number);
+  if (timeZone === "Asia/Manila") {
+    return new Date(Date.UTC(y, mo - 1, d, h - 8, mi, 0, 0));
+  }
+  const guess = new Date(Date.UTC(y, mo - 1, d, h, mi, 0, 0));
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(guess);
+  const gh = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const gmi = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const diffMin = h * 60 + mi - (gh * 60 + gmi);
+  return new Date(guess.getTime() + diffMin * 60_000);
+}
+
+export function isTimeWithinStoreHours(
+  settings: StoreHoursSettings,
+  date: Date
+): boolean {
+  if (!settings.enabled) return true;
+
+  const tz = settings.timezone || STORE_TIMEZONE;
+  const dayIndex = getDayOfWeekInTz(date, tz);
+  const day = getDaySchedule(settings, dayIndex);
+  if (!day.enabled) return false;
+
+  const minutes = getMinutesSinceMidnightInTz(date, tz);
+  const openMinutes = parseHm(day.open);
+  const closeMinutes = parseHm(day.close);
+
+  if (closeMinutes <= openMinutes) {
+    return minutes >= openMinutes || minutes < closeMinutes;
+  }
+
+  return minutes >= openMinutes && minutes < closeMinutes;
+}
+
+export function isScheduledSlotValid(
+  settings: StoreHoursSettings,
+  scheduledAt: Date,
+  now: Date = new Date(),
+  minLeadMinutes = SCHEDULE_MIN_LEAD_MINUTES,
+  maxDaysAhead = SCHEDULE_MAX_DAYS_AHEAD
+): boolean {
+  const minTime = now.getTime() + minLeadMinutes * 60_000;
+  const maxTime = now.getTime() + maxDaysAhead * 24 * 60 * 60_000;
+  const t = scheduledAt.getTime();
+  if (t < minTime || t > maxTime) return false;
+  return isTimeWithinStoreHours(settings, scheduledAt);
+}
+
+export function getAvailableScheduleDates(
+  settings: StoreHoursSettings,
+  maxDays = SCHEDULE_MAX_DAYS_AHEAD,
+  now: Date = new Date()
+): { value: string; label: string }[] {
+  const tz = settings.timezone || STORE_TIMEZONE;
+  const todayStr = formatDateInTz(now, tz);
+  const dates: { value: string; label: string }[] = [];
+
+  for (let offset = 0; offset < maxDays; offset++) {
+    const d = new Date(now.getTime() + offset * 24 * 60 * 60_000);
+    const dayIndex = getDayOfWeekInTz(d, tz);
+    if (!getDaySchedule(settings, dayIndex).enabled) continue;
+
+    const value = formatDateInTz(d, tz);
+    let label: string;
+    if (value === todayStr) label = "Today";
+    else if (offset === 1) label = "Tomorrow";
+    else {
+      label = new Intl.DateTimeFormat("en-PH", {
+        timeZone: tz,
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      }).format(d);
+    }
+    dates.push({ value, label });
+  }
+
+  return dates;
+}
+
+export function getScheduleTimeSlots(
+  settings: StoreHoursSettings,
+  dateStr: string,
+  now: Date = new Date(),
+  minLeadMinutes = SCHEDULE_MIN_LEAD_MINUTES,
+  slotMinutes = SCHEDULE_SLOT_MINUTES
+): { value: string; label: string }[] {
+  const tz = settings.timezone || STORE_TIMEZONE;
+  const probe = localDateTimeToUtc(dateStr, "12:00", tz);
+  const dayIndex = getDayOfWeekInTz(probe, tz);
+  const day = getDaySchedule(settings, dayIndex);
+  if (!day.enabled) return [];
+
+  const openMinutes = parseHm(day.open);
+  const closeMinutes = parseHm(day.close);
+  const endMinutes = closeMinutes > openMinutes ? closeMinutes : 24 * 60;
+  const slots: { value: string; label: string }[] = [];
+
+  for (let m = openMinutes; m + minLeadMinutes <= endMinutes; m += slotMinutes) {
+    const h = Math.floor(m / 60);
+    const mi = m % 60;
+    const value = `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
+    const slotUtc = localDateTimeToUtc(dateStr, value, tz);
+    if (slotUtc.getTime() < now.getTime() + minLeadMinutes * 60_000) continue;
+    if (!isTimeWithinStoreHours(settings, slotUtc)) continue;
+    slots.push({ value, label: formatTime12h(value) });
+  }
+
+  return slots;
+}
+
+export function formatScheduledDateTime(
+  iso: string,
+  timeZone: string = STORE_TIMEZONE
+): string {
+  const d = new Date(iso);
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(d);
+}

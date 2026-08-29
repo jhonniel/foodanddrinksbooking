@@ -1,5 +1,6 @@
 -- Run once in Supabase → SQL Editor if you see errors about missing
--- promotions.kind, promotions.redemption_mode, voucher_claims, or store_expenses.
+-- promotions.kind, promotions.redemption_mode, voucher_claims, store_expenses,
+-- or orders.scheduled_at.
 -- Safe to re-run (uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
 
 -- 007: voucher claims
@@ -68,3 +69,11 @@ DROP TRIGGER IF EXISTS tr_store_expenses_updated ON store_expenses;
 CREATE TRIGGER tr_store_expenses_updated
   BEFORE UPDATE ON store_expenses
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- 012: scheduled orders (order for later)
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ NULL;
+
+CREATE INDEX IF NOT EXISTS idx_orders_scheduled_at
+  ON orders (scheduled_at)
+  WHERE scheduled_at IS NOT NULL;

@@ -17,7 +17,7 @@ import {
 import { fetchCatalogFromSupabase } from "@/lib/supabase/catalog";
 import { validateCartStock } from "@/lib/cart/stockLimits";
 import { getAppSettings } from "@/lib/settings/store";
-import { getStoreClosedMessage, isStoreOpen } from "@/lib/storeHours";
+import { getStoreClosedMessage, isScheduledSlotValid, isStoreOpen } from "@/lib/storeHours";
 import { PURCHASE_SOON_MESSAGE } from "@/lib/settings/types";
 import { assertDeliveryWithinSamal } from "@/lib/delivery/samal";
 import type { CartItem, PaymentMethod, OrderType } from "@/types";
@@ -78,6 +78,7 @@ const orderApiSchema = z
     pointsUsed: z.coerce.number().int().nonnegative().optional().default(0),
     promoCode: z.string().nullable().optional(),
     idempotencyKey: z.string().min(8).optional(),
+    scheduledAt: z.string().datetime().optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (
@@ -221,19 +222,6 @@ export async function POST(request: NextRequest) {
   }
 
   const appSettings = await getAppSettings();
-  if (!isStoreOpen(appSettings.store_hours)) {
-    return NextResponse.json(
-      { error: getStoreClosedMessage(appSettings.store_hours) },
-      { status: 503 }
-    );
-  }
-
-  if (appSettings.purchase_soon_mode) {
-    return NextResponse.json(
-      { error: PURCHASE_SOON_MESSAGE },
-      { status: 503 }
-    );
-  }
 
   let body: unknown;
   try {
@@ -254,6 +242,30 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+  const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null;
+
+  if (!scheduledAt) {
+    if (!isStoreOpen(appSettings.store_hours)) {
+      return NextResponse.json(
+        { error: getStoreClosedMessage(appSettings.store_hours) },
+        { status: 503 }
+      );
+    }
+  } else if (
+    !isScheduledSlotValid(appSettings.store_hours, scheduledAt)
+  ) {
+    return NextResponse.json(
+      { error: "The selected schedule time is not available." },
+      { status: 422 }
+    );
+  }
+
+  if (appSettings.purchase_soon_mode) {
+    return NextResponse.json(
+      { error: PURCHASE_SOON_MESSAGE },
+      { status: 503 }
+    );
+  }
 
   if (data.orderType === "DELIVERY") {
     const area = assertDeliveryWithinSamal(data.latitude, data.longitude);
@@ -304,6 +316,7 @@ export async function POST(request: NextRequest) {
     pointsDiscount: data.pointsDiscount,
     pointsUsed: data.pointsUsed,
     idempotencyKey: data.idempotencyKey,
+    scheduledAt: scheduledAt?.toISOString() ?? null,
   });
 
   if (!created.order) {
