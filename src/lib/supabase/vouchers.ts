@@ -9,6 +9,26 @@ import {
 } from "@/lib/vouchers/redemptionMode";
 import type { PromoKind, Promotion, PromotionType, VoucherClaim, VoucherRedemptionMode } from "@/types";
 
+const CATCH_UP_SQL = "supabase/catch-up-007-011.sql";
+
+function promotionSchemaError(message: string | undefined): string | null {
+  const text = message ?? "";
+  if (/kind.*promotions|promotions.*kind|schema cache/i.test(text)) {
+    return `Database is missing promotions.kind. Run ${CATCH_UP_SQL} in Supabase → SQL Editor, then retry.`;
+  }
+  if (/redemption_mode/i.test(text)) {
+    return `Database is missing promotions.redemption_mode. Run ${CATCH_UP_SQL} in Supabase → SQL Editor, then retry.`;
+  }
+  if (/voucher_claims/i.test(text)) {
+    return `Database is missing voucher_claims. Run ${CATCH_UP_SQL} in Supabase → SQL Editor, then retry.`;
+  }
+  return null;
+}
+
+function formatPromotionDbError(message: string | undefined, fallback: string): string {
+  return promotionSchemaError(message) ?? message ?? fallback;
+}
+
 export function mapPromotion(row: Record<string, unknown>): Promotion {
   return {
     id: String(row.id),
@@ -187,7 +207,7 @@ export async function createVoucherInSupabase(
       return { error: "That voucher code already exists.", status: 409 };
     }
     return {
-      error: error?.message ?? "Could not create voucher.",
+      error: formatPromotionDbError(error?.message, "Could not create voucher."),
       status: 400,
     };
   }
@@ -296,7 +316,10 @@ export async function updateVoucherInSupabase(
     if (/duplicate|unique/i.test(error?.message ?? "")) {
       return { error: "That voucher code already exists.", status: 409 };
     }
-    return { error: error?.message ?? "Voucher not found.", status: 404 };
+    return {
+      error: formatPromotionDbError(error?.message, "Voucher not found."),
+      status: 404,
+    };
   }
   return { promotion: mapPromotion(data as Record<string, unknown>) };
 }
