@@ -64,7 +64,7 @@ const cartItemSchema = z
 const orderApiSchema = z
   .object({
     orderType: z.enum(["DELIVERY", "PICKUP"]),
-    paymentMethod: z.enum(["COD", "GCASH", "CARD", "ONLINE"]),
+    paymentMethod: z.enum(["COD", "QRPH", "GCASH", "CARD", "ONLINE"]),
     addressId: z.string().optional(),
     fullAddress: z.string().optional().nullable(),
     deliveryInstructions: z.string().max(500).optional().nullable(),
@@ -79,6 +79,7 @@ const orderApiSchema = z
     promoCode: z.string().nullable().optional(),
     idempotencyKey: z.string().min(8).optional(),
     scheduledAt: z.string().datetime().optional().nullable(),
+    codCashAmount: nonNeg.optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (
@@ -91,6 +92,28 @@ const orderApiSchema = z
         message: "Please select or enter a delivery address",
         path: ["addressId"],
       });
+    }
+    if (data.paymentMethod === "COD") {
+      const orderTotal = Math.max(
+        0,
+        data.subtotal +
+          data.deliveryFee -
+          (data.discount ?? 0) -
+          (data.pointsDiscount ?? 0)
+      );
+      if (data.codCashAmount == null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter how much cash you'll pay with.",
+          path: ["codCashAmount"],
+        });
+      } else if (data.codCashAmount < orderTotal) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Cash amount must be at least ₱${orderTotal.toFixed(2)}.`,
+          path: ["codCashAmount"],
+        });
+      }
     }
   });
 
@@ -317,6 +340,8 @@ export async function POST(request: NextRequest) {
     pointsUsed: data.pointsUsed,
     idempotencyKey: data.idempotencyKey,
     scheduledAt: scheduledAt?.toISOString() ?? null,
+    codCashAmount:
+      data.paymentMethod === "COD" ? (data.codCashAmount ?? null) : null,
   });
 
   if (!created.order) {

@@ -2,13 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   MapPin,
-  CreditCard,
   Banknote,
-  Smartphone,
-  Globe,
   Loader2,
   ChevronLeft,
 } from "lucide-react";
@@ -40,18 +38,31 @@ import {
   isScheduledSlotValid,
 } from "@/lib/storeHours";
 import { ScheduleOrderPicker } from "@/components/customer/ScheduleOrderPicker";
+import { QRPhPaymentPanel } from "@/components/customer/QRPhPaymentPanel";
+import {
+  CodCashPanel,
+  parseCodCashInput,
+  validateCodCashAmount,
+} from "@/components/customer/CodCashPanel";
 import type { Address, Order, PaymentMethod } from "@/types";
 
 const PAYMENT_METHODS: {
   value: PaymentMethod;
   label: string;
-  icon: typeof CreditCard;
+  icon?: typeof Banknote;
+  logoSrc?: string;
 }[] = [
   { value: "COD", label: "Cash on Delivery", icon: Banknote },
-  { value: "GCASH", label: "GCash", icon: Smartphone },
-  { value: "CARD", label: "Credit / Debit Card", icon: CreditCard },
-  { value: "ONLINE", label: "Online Payment", icon: Globe },
+  {
+    value: "QRPH",
+    label: "QR Ph",
+    logoSrc: "/qrph-logo.png",
+  },
 ];
+
+function paymentMethodLabel(method: PaymentMethod): string {
+  return PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method;
+}
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -84,7 +95,8 @@ export default function CheckoutPage() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(true);
   const [selectedAddress, setSelectedAddress] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("GCASH");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("QRPH");
+  const [codCashAmount, setCodCashAmount] = useState("");
   const [instructions, setInstructions] = useState("");
   const [placing, setPlacing] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -219,6 +231,16 @@ export default function CheckoutPage() {
       return;
     }
 
+    let codAmount: number | undefined;
+    if (paymentMethod === "COD") {
+      const cashCheck = validateCodCashAmount(codCashAmount, total);
+      if (!cashCheck.ok) {
+        toast.error(cashCheck.message);
+        return;
+      }
+      codAmount = cashCheck.amount;
+    }
+
     normalizeCart();
     const latestItems = useCartStore.getState().items;
     const stockCheck = validateCartStock(latestItems, products, inventory);
@@ -258,6 +280,7 @@ export default function CheckoutPage() {
       promoCode: promoCode ?? null,
       scheduledAt:
         fulfillmentTiming === "SCHEDULED" ? scheduledAt : null,
+      codCashAmount: codAmount,
     };
 
     setPlacing(true);
@@ -531,10 +554,14 @@ export default function CheckoutPage() {
           <h2 className="font-semibold text-navy">Payment Method</h2>
           <RadioGroup
             value={paymentMethod}
-          onValueChange={(v) => v && setPaymentMethod(v as PaymentMethod)}
+            onValueChange={(v) => {
+              if (!v) return;
+              setPaymentMethod(v as PaymentMethod);
+              if (v !== "COD") setCodCashAmount("");
+            }}
             className="space-y-3"
           >
-            {PAYMENT_METHODS.map(({ value, label, icon: Icon }) => (
+            {PAYMENT_METHODS.map(({ value, label, icon: Icon, logoSrc }) => (
               <label
                 key={value}
                 className={cn(
@@ -545,17 +572,46 @@ export default function CheckoutPage() {
                 )}
               >
                 <RadioGroupItem value={value} />
-                <Icon className="h-5 w-5 text-sky" />
+                {logoSrc ? (
+                  <Image
+                    src={logoSrc}
+                    alt={label}
+                    width={80}
+                    height={28}
+                    className="h-7 w-auto object-contain"
+                  />
+                ) : Icon ? (
+                  <Icon className="h-5 w-5 text-sky" />
+                ) : null}
                 <span className="font-medium text-navy">{label}</span>
               </label>
             ))}
           </RadioGroup>
+          {paymentMethod === "QRPH" && (
+            <QRPhPaymentPanel amount={total} />
+          )}
+          {paymentMethod === "COD" && (
+            <CodCashPanel
+              total={total}
+              value={codCashAmount}
+              onChange={setCodCashAmount}
+            />
+          )}
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => setStep(2)} className="flex-1 rounded-xl">
               Back
             </Button>
             <Button
-              onClick={() => setStep(4)}
+              onClick={() => {
+                if (paymentMethod === "COD") {
+                  const cashCheck = validateCodCashAmount(codCashAmount, total);
+                  if (!cashCheck.ok) {
+                    toast.error(cashCheck.message);
+                    return;
+                  }
+                }
+                setStep(4);
+              }}
               className="flex-1 rounded-xl bg-green hover:bg-green/90"
             >
               Review Order
@@ -647,9 +703,23 @@ export default function CheckoutPage() {
             </p>
             <p className="mt-1">
               <span className="font-semibold text-navy">Payment: </span>
-              {PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label}
+              {paymentMethodLabel(paymentMethod)}
             </p>
           </div>
+
+          {paymentMethod === "QRPH" && (
+            <QRPhPaymentPanel amount={total} />
+          )}
+
+          {paymentMethod === "COD" && (
+            <CodCashPanel
+              total={total}
+              value={codCashAmount}
+              onChange={setCodCashAmount}
+              readOnly
+              cashAmount={parseCodCashInput(codCashAmount)}
+            />
+          )}
 
           <div className="flex gap-3">
             <Button variant="outline" onClick={() => setStep(3)} className="flex-1 rounded-xl">

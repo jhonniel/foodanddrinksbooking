@@ -405,6 +405,7 @@ export const DEMO_ORDERS: Order[] = [
     total: 234,
     payment_status: "PAID",
     payment_method: "GCASH",
+    cod_cash_amount: null,
     delivery_address_id: "addr-1",
     delivery_address_snapshot: {
       full_address: "42 Palm Avenue, Lahug, Cebu City",
@@ -479,6 +480,7 @@ export const DEMO_ORDERS: Order[] = [
     total: 185,
     payment_status: "PAID",
     payment_method: "CARD",
+    cod_cash_amount: null,
     delivery_address_id: null,
     delivery_address_snapshot: null,
     delivery_instructions: null,
@@ -541,6 +543,7 @@ export const DEMO_ORDERS: Order[] = [
     total: 269,
     payment_status: "PENDING",
     payment_method: "COD",
+    cod_cash_amount: 300,
     delivery_address_id: "addr-1",
     delivery_address_snapshot: {
       full_address: "42 Palm Avenue, Lahug, Cebu City",
@@ -608,6 +611,7 @@ export const DEMO_ORDERS: Order[] = [
     total: 229,
     payment_status: "PAID",
     payment_method: "GCASH",
+    cod_cash_amount: null,
     delivery_address_id: "addr-1",
     delivery_address_snapshot: {
       full_address: "42 Palm Avenue, Lahug, Cebu City",
@@ -673,6 +677,7 @@ export const DEMO_ORDERS: Order[] = [
     total: 219,
     payment_status: "PAID",
     payment_method: "COD",
+    cod_cash_amount: 300,
     delivery_address_id: "addr-1",
     delivery_address_snapshot: {
       full_address: "88 Mabolo St, Cebu City",

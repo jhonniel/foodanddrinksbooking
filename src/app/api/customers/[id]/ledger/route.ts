@@ -46,6 +46,8 @@ function mapOrderLite(row: Record<string, unknown>): Order {
     total: Number(row.total ?? 0),
     payment_status: (row.payment_status as Order["payment_status"]) || "PENDING",
     payment_method: (row.payment_method as Order["payment_method"]) || "COD",
+    cod_cash_amount:
+      row.cod_cash_amount != null ? Number(row.cod_cash_amount) : null,
     delivery_address_id: null,
     delivery_address_snapshot: null,
     delivery_instructions: null,

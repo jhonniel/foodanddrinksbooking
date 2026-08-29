@@ -1,6 +1,6 @@
 -- Run once in Supabase → SQL Editor if you see errors about missing
 -- promotions.kind, promotions.redemption_mode, voucher_claims, store_expenses,
--- or orders.scheduled_at.
+-- or orders.scheduled_at, or orders.cod_cash_amount.
 -- Safe to re-run (uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
 
 -- 007: voucher claims
@@ -77,3 +77,10 @@ ALTER TABLE orders
 CREATE INDEX IF NOT EXISTS idx_orders_scheduled_at
   ON orders (scheduled_at)
   WHERE scheduled_at IS NOT NULL;
+
+-- 013: QR Ph payment method
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'QRPH';
+
+-- 014: COD cash amount (for driver change preparation)
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS cod_cash_amount DECIMAL(10, 2) NULL;

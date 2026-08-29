@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Phone, MapPin, Navigation, CheckCircle } from "lucide-react";
 import { useAppStore } from "@/stores/app";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { CodCashPanel } from "@/components/customer/CodCashPanel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -210,6 +211,17 @@ export default function DriverDeliveryDetailPage({
           </p>
         </div>
       </div>
+
+      {order.payment_method === "COD" && order.cod_cash_amount != null && (
+        <CodCashPanel
+          total={order.total}
+          value=""
+          onChange={() => {}}
+          readOnly
+          cashAmount={order.cod_cash_amount}
+          className="mb-4"
+        />
+      )}
 
       {showPinInput && (
         <div className="mb-4 rounded-2xl bg-white p-4 shadow-card">

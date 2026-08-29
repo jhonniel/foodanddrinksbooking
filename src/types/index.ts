@@ -27,7 +27,7 @@ export type PaymentStatus =
   | "REFUNDED"
   | "CANCELLED";
 
-export type PaymentMethod = "COD" | "GCASH" | "CARD" | "ONLINE";
+export type PaymentMethod = "COD" | "QRPH" | "GCASH" | "CARD" | "ONLINE";
 
 export type DriverStatus = "ONLINE" | "OFFLINE" | "BUSY" | "SUSPENDED";
 
@@ -231,6 +231,8 @@ export interface Order {
   total: number;
   payment_status: PaymentStatus;
   payment_method: PaymentMethod | null;
+  /** Cash tendered for COD orders (customer pays with this amount). */
+  cod_cash_amount: number | null;
   delivery_address_id: string | null;
   delivery_address_snapshot: AddressSnapshot | null;
   delivery_instructions: string | null;

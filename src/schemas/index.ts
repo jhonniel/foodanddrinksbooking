@@ -37,7 +37,7 @@ export const registerSchema = z
 export const checkoutSchema = z
   .object({
     orderType: z.enum(["DELIVERY", "PICKUP"]),
-    paymentMethod: z.enum(["COD", "GCASH", "CARD", "ONLINE"]),
+    paymentMethod: z.enum(["COD", "QRPH", "GCASH", "CARD", "ONLINE"]),
     addressId: z.string().optional(),
     fullAddress: z.string().optional(),
     deliveryInstructions: z.string().max(500).optional(),

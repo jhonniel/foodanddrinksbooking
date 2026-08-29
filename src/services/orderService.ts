@@ -113,6 +113,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       total,
       payment_status: payment.status,
       payment_method: input.paymentMethod,
+      cod_cash_amount: null,
       delivery_address_id: null,
       delivery_address_snapshot: input.address || null,
       delivery_instructions: input.deliveryInstructions || null,

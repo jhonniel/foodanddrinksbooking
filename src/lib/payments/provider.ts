@@ -64,7 +64,45 @@ export class CodPaymentProvider implements PaymentProvider {
   }
 }
 
-/** GCash stub — ready for real API integration */
+/** QR Ph payment stub — ready for real QRPh integration */
+export class QRPhPaymentProvider implements PaymentProvider {
+  readonly name = "qrph";
+
+  async createPayment(input: CreatePaymentInput): Promise<PaymentResult> {
+    await delay(800);
+    return {
+      success: true,
+      transactionId: `qrph_${input.idempotencyKey}`,
+      provider: this.name,
+      status: "PENDING",
+      message: "Scan the QR Ph code to complete payment",
+    };
+  }
+
+  async verifyPayment(transactionId: string): Promise<PaymentResult> {
+    return {
+      success: true,
+      transactionId,
+      provider: this.name,
+      status: "PAID",
+    };
+  }
+
+  async refundPayment(transactionId: string): Promise<PaymentResult> {
+    return {
+      success: true,
+      transactionId,
+      provider: this.name,
+      status: "REFUNDED",
+    };
+  }
+
+  async getPaymentStatus(): Promise<PaymentStatus> {
+    return "PENDING";
+  }
+}
+
+/** GCash stub — legacy orders only */
 export class GCashPaymentProvider implements PaymentProvider {
   readonly name = "gcash";
 
@@ -161,6 +199,7 @@ export class OnlinePaymentProvider implements PaymentProvider {
 
 const providers: Record<PaymentMethod, PaymentProvider> = {
   COD: new CodPaymentProvider(),
+  QRPH: new QRPhPaymentProvider(),
   GCASH: new GCashPaymentProvider(),
   CARD: new CardPaymentProvider(),
   ONLINE: new OnlinePaymentProvider(),

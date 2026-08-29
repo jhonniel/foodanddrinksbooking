@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { OrderTrackingStepper } from "@/components/customer/OrderTrackingStepper";
+import { QRPhPaymentPanel } from "@/components/customer/QRPhPaymentPanel";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useCartStore } from "@/stores/cart";
@@ -208,6 +209,12 @@ export default function OrderDetailPage() {
 
       <OrderTrackingStepper order={order} />
 
+      {order.payment_method === "QRPH" &&
+        order.payment_status !== "PAID" &&
+        order.status !== "CANCELLED" && (
+          <QRPhPaymentPanel amount={order.total} />
+        )}
+
       {showLiveExtras && mapCenter && (
         <div className="overflow-hidden rounded-2xl bg-white shadow-card">
           <div className="border-b px-4 py-3">
@@ -347,6 +354,22 @@ export default function OrderDetailPage() {
             <span>Total</span>
             <span>{formatCurrency(order.total)}</span>
           </div>
+          {order.payment_method === "COD" && order.cod_cash_amount != null && (
+            <div className="mt-3 space-y-1 border-t pt-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Paying with</span>
+                <span>{formatCurrency(order.cod_cash_amount)}</span>
+              </div>
+              {order.cod_cash_amount > order.total && (
+                <div className="flex justify-between font-medium text-amber-800">
+                  <span>Change</span>
+                  <span>
+                    {formatCurrency(order.cod_cash_amount - order.total)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

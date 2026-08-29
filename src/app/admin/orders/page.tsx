@@ -504,6 +504,27 @@ export default function AdminOrdersPage() {
                       {formatCurrency(selected.total)}
                     </span>
                   </div>
+                  {selected.payment_method === "COD" &&
+                    selected.cod_cash_amount != null && (
+                      <div className="mt-2 space-y-1 rounded-xl bg-amber-50 px-3 py-2.5 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-amber-800">Customer pays with</span>
+                          <span className="font-medium tabular-nums text-amber-900">
+                            {formatCurrency(selected.cod_cash_amount)}
+                          </span>
+                        </div>
+                        {selected.cod_cash_amount > selected.total && (
+                          <div className="flex justify-between font-semibold text-amber-900">
+                            <span>Change to prepare</span>
+                            <span className="tabular-nums">
+                              {formatCurrency(
+                                selected.cod_cash_amount - selected.total
+                              )}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   <div className="mt-2.5 flex justify-between rounded-xl bg-sky/10 px-3 py-2.5 text-sm">
                     <span className="text-muted-foreground">
                       Points to earn
