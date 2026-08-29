@@ -18,6 +18,8 @@ import { useCartTotals } from "@/hooks/useCartTotals";
 import { validatePromoCode } from "@/services/productService";
 import { formatCurrency } from "@/lib/utils/format";
 import { useDataStore } from "@/stores/data";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
+import { PURCHASE_SOON_MESSAGE } from "@/lib/settings/types";
 import { DELIVERY_CONFIG } from "@/data/demo";
 import {
   formatDeliveryRateLabel,
@@ -33,6 +35,9 @@ export default function CartPage() {
   const products = useDataStore((s) => s.products);
   const inventory = useDataStore((s) => s.inventory);
   const catalogHydrated = useDataStore((s) => s.hydrated);
+  const { purchaseSoon, storeOpen, storeClosedMessage } = useStoreSettings();
+  const checkoutBlocked = !storeOpen || purchaseSoon;
+  const checkoutBlockMessage = !storeOpen ? storeClosedMessage : PURCHASE_SOON_MESSAGE;
   const {
     items,
     itemCount,
@@ -257,12 +262,25 @@ export default function CartPage() {
       </div>
 
       <div className="fixed inset-x-0 bottom-16 z-40 border-t border-border bg-white/95 px-4 py-3 backdrop-blur-md lg:bottom-0">
-        <Link
-          href="/checkout"
-          className="mx-auto flex h-12 w-full max-w-lg items-center justify-center rounded-xl bg-green text-base font-bold text-white hover:bg-green/90"
-        >
-          CHECKOUT — {formatCurrency(total)}
-        </Link>
+        {checkoutBlocked ? (
+          <div className="mx-auto w-full max-w-lg space-y-2">
+            <p className="text-center text-sm text-amber-900">{checkoutBlockMessage}</p>
+            <button
+              type="button"
+              disabled
+              className="flex h-12 w-full cursor-not-allowed items-center justify-center rounded-xl bg-muted text-base font-bold text-muted-foreground"
+            >
+              CHECKOUT UNAVAILABLE
+            </button>
+          </div>
+        ) : (
+          <Link
+            href="/checkout"
+            className="mx-auto flex h-12 w-full max-w-lg items-center justify-center rounded-xl bg-green text-base font-bold text-white hover:bg-green/90"
+          >
+            CHECKOUT — {formatCurrency(total)}
+          </Link>
+        )}
       </div>
     </div>
   );

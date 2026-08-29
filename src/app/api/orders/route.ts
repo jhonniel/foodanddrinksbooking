@@ -16,6 +16,9 @@ import {
 } from "@/lib/supabase/orders";
 import { fetchCatalogFromSupabase } from "@/lib/supabase/catalog";
 import { validateCartStock } from "@/lib/cart/stockLimits";
+import { getAppSettings } from "@/lib/settings/store";
+import { getStoreClosedMessage, isStoreOpen } from "@/lib/storeHours";
+import { PURCHASE_SOON_MESSAGE } from "@/lib/settings/types";
 import { assertDeliveryWithinSamal } from "@/lib/delivery/samal";
 import type { CartItem, PaymentMethod, OrderType } from "@/types";
 
@@ -214,6 +217,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Please sign in to place an order." },
       { status: 401 }
+    );
+  }
+
+  const appSettings = await getAppSettings();
+  if (!isStoreOpen(appSettings.store_hours)) {
+    return NextResponse.json(
+      { error: getStoreClosedMessage(appSettings.store_hours) },
+      { status: 503 }
+    );
+  }
+
+  if (appSettings.purchase_soon_mode) {
+    return NextResponse.json(
+      { error: PURCHASE_SOON_MESSAGE },
+      { status: 503 }
     );
   }
 

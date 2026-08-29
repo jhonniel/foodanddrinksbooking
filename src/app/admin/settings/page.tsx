@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Construction, Database, Gift, ShieldCheck, Store } from "lucide-react";
+import { Construction, Clock, CalendarDays, Database, Gift, ShieldCheck, Store } from "lucide-react";
 import {
   STORE_LOCATION,
   LOYALTY_SETTINGS,
@@ -13,6 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import {
+  DEFAULT_STORE_HOURS,
+  WEEKDAYS,
+  formatWeeklySchedule,
+  parseStoreHours,
+} from "@/lib/storeHours";
+import type { StoreHoursSettings } from "@/lib/settings/types";
 
 export default function AdminSettingsPage() {
   const [storeName, setStoreName] = useState(STORE_LOCATION.name);
@@ -34,8 +41,13 @@ export default function AdminSettingsPage() {
   const [radiusKm, setRadiusKm] = useState(String(DELIVERY_CONFIG.radiusKm));
   const [freeAbove, setFreeAbove] = useState(String(DELIVERY_CONFIG.freeAbove));
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [purchaseSoonMode, setPurchaseSoonMode] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
   const [maintenanceSaving, setMaintenanceSaving] = useState(false);
+  const [purchaseSoonSaving, setPurchaseSoonSaving] = useState(false);
+  const [storeHoursSettings, setStoreHoursSettings] =
+    useState<StoreHoursSettings>(DEFAULT_STORE_HOURS);
+  const [storeHoursSaving, setStoreHoursSaving] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState<{
     configured: boolean;
     auth: boolean;
@@ -53,7 +65,11 @@ export default function AdminSettingsPage() {
           fetch("/api/supabase/status", { credentials: "include" }),
         ]);
         const json = (await settingsRes.json()) as {
-          settings?: { maintenance_mode?: boolean };
+          settings?: {
+            maintenance_mode?: boolean;
+            purchase_soon_mode?: boolean;
+            store_hours?: StoreHoursSettings;
+          };
         };
         const status = (await statusRes.json()) as {
           configured: boolean;
@@ -64,6 +80,10 @@ export default function AdminSettingsPage() {
         };
         if (!cancelled) {
           setMaintenanceMode(Boolean(json.settings?.maintenance_mode));
+          setPurchaseSoonMode(Boolean(json.settings?.purchase_soon_mode));
+          setStoreHoursSettings(
+            parseStoreHours(json.settings?.store_hours ?? DEFAULT_STORE_HOURS)
+          );
           setSupabaseStatus(status);
         }
       } catch {
@@ -89,7 +109,10 @@ export default function AdminSettingsPage() {
       });
       const json = (await res.json()) as {
         error?: string;
-        settings?: { maintenance_mode?: boolean };
+        settings?: {
+          maintenance_mode?: boolean;
+          purchase_soon_mode?: boolean;
+        };
       };
       if (!res.ok) {
         setMaintenanceMode(previous);
@@ -107,6 +130,85 @@ export default function AdminSettingsPage() {
       toast.error("Could not update maintenance mode.");
     } finally {
       setMaintenanceSaving(false);
+    }
+  };
+
+  const handlePurchaseSoonToggle = async (enabled: boolean) => {
+    setPurchaseSoonSaving(true);
+    const previous = purchaseSoonMode;
+    setPurchaseSoonMode(enabled);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purchase_soon_mode: enabled }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        settings?: {
+          maintenance_mode?: boolean;
+          purchase_soon_mode?: boolean;
+        };
+      };
+      if (!res.ok) {
+        setPurchaseSoonMode(previous);
+        toast.error(json.error ?? "Could not update purchase soon mode.");
+        return;
+      }
+      setPurchaseSoonMode(Boolean(json.settings?.purchase_soon_mode));
+      toast.success(
+        enabled
+          ? "Purchase soon on — customers can browse but not checkout"
+          : "Purchase soon off — checkout is open"
+      );
+    } catch {
+      setPurchaseSoonMode(previous);
+      toast.error("Could not update purchase soon mode.");
+    } finally {
+      setPurchaseSoonSaving(false);
+    }
+  };
+
+  const updateDaySchedule = (
+    dayKey: number,
+    patch: Partial<StoreHoursSettings["schedule"][string]>
+  ) => {
+    const key = String(dayKey);
+    setStoreHoursSettings((prev) => ({
+      ...prev,
+      schedule: {
+        ...prev.schedule,
+        [key]: {
+          ...prev.schedule[key],
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const handleSaveStoreHours = async () => {
+    setStoreHoursSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store_hours: storeHoursSettings }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        settings?: { store_hours?: StoreHoursSettings };
+      };
+      if (!res.ok) {
+        toast.error(json.error ?? "Could not save store hours.");
+        return;
+      }
+      const saved = parseStoreHours(json.settings?.store_hours);
+      setStoreHoursSettings(saved);
+      toast.success("Store hours saved");
+    } catch {
+      toast.error("Could not save store hours.");
+    } finally {
+      setStoreHoursSaving(false);
     }
   };
 
@@ -208,6 +310,139 @@ export default function AdminSettingsPage() {
               <span className="font-semibold">/maintenance</span>.
             </p>
           )}
+        </section>
+
+        <section className="rounded-2xl bg-white p-6 shadow-card">
+          <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-sky" />
+            <h2 className="text-lg font-semibold text-navy">Purchase Soon</h2>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label htmlFor="purchase-soon-mode">Pause checkout for all menu items</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Customers can still browse the menu and add items to cart, but
+                checkout and placing orders are disabled until you turn this off.
+              </p>
+            </div>
+            <Switch
+              id="purchase-soon-mode"
+              checked={purchaseSoonMode}
+              disabled={maintenanceLoading || purchaseSoonSaving}
+              onCheckedChange={(v) => void handlePurchaseSoonToggle(v)}
+            />
+          </div>
+          {purchaseSoonMode && (
+            <p className="mt-3 rounded-lg bg-sky/10 px-3 py-2 text-xs text-navy">
+              Live now — the menu stays visible and checkout is blocked for
+              customers.
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-2xl bg-white p-6 shadow-card">
+          <div className="mb-4 flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-green" />
+            <h2 className="text-lg font-semibold text-navy">Store Hours</h2>
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="store-hours-enabled">Enforce opening schedule</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  When on, customers can browse anytime but checkout is only
+                  available during the hours you set below.
+                </p>
+              </div>
+              <Switch
+                id="store-hours-enabled"
+                checked={storeHoursSettings.enabled}
+                disabled={maintenanceLoading || storeHoursSaving}
+                onCheckedChange={(enabled) =>
+                  setStoreHoursSettings((prev) => ({ ...prev, enabled }))
+                }
+              />
+            </div>
+
+            <div className="space-y-2">
+              {WEEKDAYS.map((day) => {
+                const key = String(day.key);
+                const daySchedule = storeHoursSettings.schedule[key];
+                return (
+                  <div
+                    key={day.key}
+                    className="grid gap-3 rounded-xl border border-border/60 px-3 py-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center"
+                  >
+                    <div className="flex items-center justify-between gap-3 sm:justify-start">
+                      <span className="text-sm font-medium text-navy">
+                        {day.label}
+                      </span>
+                      <Switch
+                        checked={daySchedule.enabled}
+                        disabled={maintenanceLoading || storeHoursSaving}
+                        onCheckedChange={(enabled) =>
+                          updateDaySchedule(day.key, { enabled })
+                        }
+                        aria-label={`${day.label} open`}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`open-${day.key}`} className="sr-only">
+                        {day.label} open
+                      </Label>
+                      <Input
+                        id={`open-${day.key}`}
+                        type="time"
+                        value={daySchedule.open}
+                        disabled={
+                          !daySchedule.enabled ||
+                          maintenanceLoading ||
+                          storeHoursSaving
+                        }
+                        onChange={(e) =>
+                          updateDaySchedule(day.key, { open: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`close-${day.key}`} className="sr-only">
+                        {day.label} close
+                      </Label>
+                      <Input
+                        id={`close-${day.key}`}
+                        type="time"
+                        value={daySchedule.close}
+                        disabled={
+                          !daySchedule.enabled ||
+                          maintenanceLoading ||
+                          storeHoursSaving
+                        }
+                        onChange={(e) =>
+                          updateDaySchedule(day.key, { close: e.target.value })
+                        }
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground sm:text-right">
+                      {daySchedule.enabled ? "Open" : "Closed"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Schedule preview: {formatWeeklySchedule(storeHoursSettings)} (
+              {storeHoursSettings.timezone})
+            </p>
+
+            <Button
+              className="w-full bg-green hover:bg-green/90"
+              disabled={maintenanceLoading || storeHoursSaving}
+              onClick={() => void handleSaveStoreHours()}
+            >
+              {storeHoursSaving ? "Saving hours..." : "Save Store Hours"}
+            </Button>
+          </div>
         </section>
 
         <section className="rounded-2xl bg-white p-6 shadow-card">

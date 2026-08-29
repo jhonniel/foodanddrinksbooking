@@ -1,10 +1,13 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/stores/auth";
 import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 import { CustomerHeader } from "@/components/customer/CustomerHeader";
 import { CustomerBottomNav } from "@/components/customer/CustomerBottomNav";
 import { StickyCartButton } from "@/components/customer/StickyCartButton";
+import { PurchaseSoonBanner } from "@/components/customer/PurchaseSoonBanner";
+import { StoreClosedBanner } from "@/components/customer/StoreClosedBanner";
 
 function CustomerNotificationBridge() {
   const user = useAuthStore((s) => s.user);
@@ -12,6 +15,12 @@ function CustomerNotificationBridge() {
     audience: "customer",
   });
   return null;
+}
+
+function CustomerStoreNotices() {
+  const pathname = usePathname();
+  if (pathname === "/menu") return null;
+  return <StoreClosedBanner />;
 }
 
 export default function CustomerLayout({
@@ -33,6 +42,8 @@ export default function CustomerLayout({
         id="main-content"
         className="mx-auto w-full max-w-7xl px-3 pb-28 pt-3 sm:px-4 sm:pt-4 lg:px-6 lg:pb-8 lg:pt-6"
       >
+        <CustomerStoreNotices />
+        <PurchaseSoonBanner />
         {children}
       </main>
       <CustomerBottomNav />

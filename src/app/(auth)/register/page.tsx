@@ -14,11 +14,13 @@ import { Label } from "@/components/ui/label";
 import { registerSchema, type RegisterInput } from "@/schemas";
 import { useAuthStore } from "@/stores/auth";
 import { homePathForRole } from "@/lib/auth/config";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
 
 function RegisterForm() {
   const router = useRouter();
   const registerAccount = useAuthStore((s) => s.register);
   const [loading, setLoading] = useState(false);
+  const { storeOpen, storeHours, loading: settingsLoading } = useStoreSettings();
 
   const {
     register,
@@ -70,6 +72,12 @@ function RegisterForm() {
           <p className="mt-1 text-sm text-muted-foreground">
             Sign up with your name and mobile number.
           </p>
+          {!settingsLoading && !storeOpen && storeHours.enabled && (
+            <p className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              The store is closed for orders right now. You can still create an
+              account and browse the menu.
+            </p>
+          )}
         </div>
 
         <div className="rounded-2xl bg-white p-6 shadow-card">

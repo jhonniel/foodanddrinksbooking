@@ -7,14 +7,19 @@ import {
   isSupabaseConfigured,
 } from "@/lib/auth/config";
 import { createClient } from "@supabase/supabase-js";
-import type { AppSettings } from "./types";
+import { DEFAULT_STORE_HOURS, isStoreOpen, parseStoreHours } from "@/lib/storeHours";
+import type { AppSettings, StoreHoursSettings } from "./types";
 
-export type { AppSettings } from "./types";
+export type { AppSettings, StoreHoursSettings } from "./types";
 
-const SETTINGS_KEY = "maintenance_mode";
+const MAINTENANCE_KEY = "maintenance_mode";
+const PURCHASE_SOON_KEY = "purchase_soon_mode";
+const STORE_HOURS_KEY = "store_hours";
 
 const DEFAULT_SETTINGS: AppSettings = {
   maintenance_mode: false,
+  purchase_soon_mode: false,
+  store_hours: DEFAULT_STORE_HOURS,
   updated_at: null,
 };
 
@@ -26,7 +31,7 @@ function createServiceSupabase() {
   });
 }
 
-function parseMaintenanceValue(value: unknown): boolean {
+function parseBooleanSetting(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   if (value === "true" || value === "1") return true;
   if (value && typeof value === "object" && "enabled" in value) {
@@ -39,28 +44,43 @@ async function getSupabaseSettings(): Promise<AppSettings> {
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("app_settings")
-    .select("value, updated_at")
-    .eq("key", SETTINGS_KEY)
-    .maybeSingle();
+    .select("key, value, updated_at")
+    .in("key", [MAINTENANCE_KEY, PURCHASE_SOON_KEY, STORE_HOURS_KEY]);
 
   if (error) {
     console.error("[settings] supabase read failed", error.message);
     return { ...DEFAULT_SETTINGS };
   }
 
+  const rows = data ?? [];
+  const maintenanceRow = rows.find((row) => row.key === MAINTENANCE_KEY);
+  const purchaseSoonRow = rows.find((row) => row.key === PURCHASE_SOON_KEY);
+  const storeHoursRow = rows.find((row) => row.key === STORE_HOURS_KEY);
+  const updated_at =
+    rows
+      .map((row) => row.updated_at)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? null;
+
   return {
-    maintenance_mode: parseMaintenanceValue(data?.value),
-    updated_at: data?.updated_at ?? null,
+    maintenance_mode: parseBooleanSetting(maintenanceRow?.value),
+    purchase_soon_mode: parseBooleanSetting(purchaseSoonRow?.value),
+    store_hours: parseStoreHours(storeHoursRow?.value),
+    updated_at,
   };
 }
 
-async function setSupabaseMaintenance(enabled: boolean): Promise<AppSettings> {
+async function upsertSupabaseSetting(
+  key: string,
+  value: unknown
+): Promise<string> {
   const supabase = createServiceSupabase();
   const updated_at = new Date().toISOString();
   const { error } = await supabase.from("app_settings").upsert(
     {
-      key: SETTINGS_KEY,
-      value: enabled,
+      key,
+      value,
       updated_at,
     },
     { onConflict: "key" }
@@ -70,7 +90,7 @@ async function setSupabaseMaintenance(enabled: boolean): Promise<AppSettings> {
     throw new Error(error.message);
   }
 
-  return { maintenance_mode: enabled, updated_at };
+  return updated_at;
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
@@ -86,17 +106,66 @@ export async function isMaintenanceMode(): Promise<boolean> {
   return settings.maintenance_mode;
 }
 
-export async function setMaintenanceMode(
-  enabled: boolean
+export async function isPurchaseSoonMode(): Promise<boolean> {
+  const settings = await getAppSettings();
+  return settings.purchase_soon_mode;
+}
+
+export async function isStoreCurrentlyOpen(): Promise<boolean> {
+  const settings = await getAppSettings();
+  return isStoreOpen(settings.store_hours);
+}
+
+export async function updateAppSettings(
+  patch: Partial<
+    Pick<AppSettings, "maintenance_mode" | "purchase_soon_mode" | "store_hours">
+  >
 ): Promise<AppSettings> {
   if (isSupabaseConfigured()) {
-    return setSupabaseMaintenance(enabled);
+    let latestUpdatedAt: string | null = null;
+    if (patch.maintenance_mode !== undefined) {
+      latestUpdatedAt = await upsertSupabaseSetting(
+        MAINTENANCE_KEY,
+        patch.maintenance_mode
+      );
+    }
+    if (patch.purchase_soon_mode !== undefined) {
+      latestUpdatedAt = await upsertSupabaseSetting(
+        PURCHASE_SOON_KEY,
+        patch.purchase_soon_mode
+      );
+    }
+    if (patch.store_hours !== undefined) {
+      latestUpdatedAt = await upsertSupabaseSetting(
+        STORE_HOURS_KEY,
+        patch.store_hours
+      );
+    }
+    const settings = await getSupabaseSettings();
+    return latestUpdatedAt
+      ? { ...settings, updated_at: latestUpdatedAt }
+      : settings;
   }
+
+  const current = await readLocalSettingsMerged();
   const settings: AppSettings = {
-    maintenance_mode: enabled,
+    ...current,
+    ...patch,
     updated_at: new Date().toISOString(),
   };
   const { writeLocalSettings } = await import("./localFileStore");
   await writeLocalSettings(settings);
   return settings;
+}
+
+async function readLocalSettingsMerged(): Promise<AppSettings> {
+  const { readLocalSettings } = await import("./localFileStore");
+  return readLocalSettings();
+}
+
+/** @deprecated Use updateAppSettings({ maintenance_mode }) */
+export async function setMaintenanceMode(
+  enabled: boolean
+): Promise<AppSettings> {
+  return updateAppSettings({ maintenance_mode: enabled });
 }

@@ -19,6 +19,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { useCartStore, formatCartOptions, getCartItemPrice } from "@/stores/cart";
 import { useCartTotals } from "@/hooks/useCartTotals";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
+import { PURCHASE_SOON_MESSAGE } from "@/lib/settings/types";
 import { useAuthStore } from "@/stores/auth";
 import { useAppStore } from "@/stores/app";
 import { useDataStore } from "@/stores/data";
@@ -33,6 +35,7 @@ import {
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
 import { SAMAL_SERVICE_MESSAGE } from "@/lib/delivery/samal";
+import { formatWeeklySchedule } from "@/lib/storeHours";
 import type { Address, Order, PaymentMethod } from "@/types";
 
 const PAYMENT_METHODS: {
@@ -66,6 +69,9 @@ export default function CheckoutPage() {
   const inventory = useDataStore((s) => s.inventory);
   const catalogHydrated = useDataStore((s) => s.hydrated);
   const { subtotal, deliveryQuote, deliveryFee, total } = useCartTotals();
+  const { purchaseSoon, storeOpen, storeClosedMessage, storeHours, loading: settingsLoading } =
+    useStoreSettings();
+  const hoursLabel = formatWeeklySchedule(storeHours);
 
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(true);
@@ -134,6 +140,40 @@ export default function CheckoutPage() {
     );
   }
 
+  if (!settingsLoading && !storeOpen) {
+    return (
+      <div className="py-16 text-center">
+        <h1 className="text-xl font-bold text-navy">Store closed</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
+          {storeClosedMessage}
+        </p>
+        <Link
+          href="/cart"
+          className="mt-6 inline-flex items-center justify-center rounded-xl bg-green px-4 py-2 text-sm font-medium text-white hover:bg-green/90"
+        >
+          Back to Cart
+        </Link>
+      </div>
+    );
+  }
+
+  if (!settingsLoading && purchaseSoon) {
+    return (
+      <div className="py-16 text-center">
+        <h1 className="text-xl font-bold text-navy">Checkout unavailable</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
+          {PURCHASE_SOON_MESSAGE}
+        </p>
+        <Link
+          href="/cart"
+          className="mt-6 inline-flex items-center justify-center rounded-xl bg-green px-4 py-2 text-sm font-medium text-white hover:bg-green/90"
+        >
+          Back to Cart
+        </Link>
+      </div>
+    );
+  }
+
   const address = addresses.find((a) => a.id === selectedAddress);
 
   const finishOrder = (order: Order) => {
@@ -145,6 +185,14 @@ export default function CheckoutPage() {
   };
 
   const handlePlaceOrder = async () => {
+    if (!storeOpen) {
+      toast.error(storeClosedMessage);
+      return;
+    }
+    if (purchaseSoon) {
+      toast.error(PURCHASE_SOON_MESSAGE);
+      return;
+    }
     // Session cookie can exist while the auth store is still empty — refresh first.
     let activeUser = user;
     if (!activeUser) {
@@ -306,7 +354,7 @@ export default function CheckoutPage() {
             <div className="rounded-2xl bg-light-blue p-4 text-sm">
               <p className="font-semibold text-navy">{STORE_LOCATION.name}</p>
               <p className="mt-1 text-muted-foreground">{STORE_LOCATION.address}</p>
-              <p className="mt-1 text-muted-foreground">{STORE_LOCATION.hours}</p>
+              <p className="mt-1 text-muted-foreground">{hoursLabel}</p>
             </div>
           )}
           <Button

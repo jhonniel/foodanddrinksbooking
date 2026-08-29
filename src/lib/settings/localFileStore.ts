@@ -2,10 +2,13 @@ import "server-only";
 
 import { promises as fs } from "fs";
 import path from "path";
+import { DEFAULT_STORE_HOURS, parseStoreHours } from "@/lib/storeHours";
 import type { AppSettings } from "./types";
 
 const DEFAULT_SETTINGS: AppSettings = {
   maintenance_mode: false,
+  purchase_soon_mode: false,
+  store_hours: DEFAULT_STORE_HOURS,
   updated_at: null,
 };
 
@@ -25,6 +28,8 @@ export async function readLocalSettings(): Promise<AppSettings> {
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
     return {
       maintenance_mode: Boolean(parsed.maintenance_mode),
+      purchase_soon_mode: Boolean(parsed.purchase_soon_mode),
+      store_hours: parseStoreHours(parsed.store_hours),
       updated_at: parsed.updated_at ?? null,
     };
   } catch {
