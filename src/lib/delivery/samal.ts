@@ -73,3 +73,17 @@ export function assertDeliveryWithinSamal(
   }
   return { ok: true };
 }
+
+/** Leaflet-ready bounds [[south, west], [north, east]] with optional padding. */
+export function getSamalMapBounds(pad = 0.02): [[number, number], [number, number]] {
+  const lats = SAMAL_ISLAND_POLYGON.map((p) => p.lat);
+  const lngs = SAMAL_ISLAND_POLYGON.map((p) => p.lng);
+  const minLat = Math.min(...lats) - pad;
+  const maxLat = Math.max(...lats) + pad;
+  const minLng = Math.min(...lngs) - pad;
+  const maxLng = Math.max(...lngs) + pad;
+  return [
+    [minLat, minLng],
+    [maxLat, maxLng],
+  ];
+}

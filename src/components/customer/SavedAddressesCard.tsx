@@ -16,24 +16,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LocationPinMap } from "@/components/customer/LocationPinMap";
-import { DeliveryFeePreview } from "@/components/customer/DeliveryFeePreview";
 import {
   reverseGeocodeClient,
   searchAddressClient,
 } from "@/lib/geocoding/client";
 import type { GeocodeSearchResult } from "@/lib/geocoding/types";
-import {
-  calculateDeliveryFee,
-  formatDistanceKm,
-  type LatLng,
-} from "@/lib/delivery/pricing";
+import type { LatLng } from "@/lib/delivery/pricing";
 import {
   isWithinSamalIsland,
   SAMAL_MAP_CENTER,
   SAMAL_SERVICE_MESSAGE,
 } from "@/lib/delivery/samal";
-import { useStoreSettings } from "@/hooks/useStoreSettings";
-import { formatCurrency } from "@/lib/utils/format";
 import type { Address } from "@/types";
 
 const MAX_ADDRESSES = 3;
@@ -74,7 +67,6 @@ function toForm(addr: Address): FormState {
 }
 
 export function SavedAddressesCard() {
-  const { store, delivery } = useStoreSettings();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -232,11 +224,6 @@ export function SavedAddressesCard() {
     setDialogOpen(true);
   };
 
-  const pinCoords =
-    form.latitude != null && form.longitude != null
-      ? { lat: form.latitude, lng: form.longitude }
-      : null;
-
   const handleSave = async () => {
     const label = form.label.trim();
     const fullAddress = form.fullAddress.trim();
@@ -391,17 +378,6 @@ export function SavedAddressesCard() {
                     isWithinSamalIsland(addr.latitude, addr.longitude) ? (
                       <p className="mt-1 text-[11px] font-medium text-green">
                         Inside Samal Island
-                        {(() => {
-                          const quote = calculateDeliveryFee(
-                            { lat: addr.latitude!, lng: addr.longitude! },
-                            0,
-                            delivery,
-                            store
-                          );
-                          return quote.withinRadius
-                            ? ` · ${formatDistanceKm(quote.distanceKm)} · ${formatCurrency(quote.fee)} delivery`
-                            : "";
-                        })()}
                       </p>
                     ) : (
                       <p className="mt-1 text-[11px] font-medium text-destructive">
@@ -533,7 +509,6 @@ export function SavedAddressesCard() {
                 />
               </div>
             </div>
-            {pinCoords && <DeliveryFeePreview pin={pinCoords} />}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="addr-brgy">Barangay</Label>

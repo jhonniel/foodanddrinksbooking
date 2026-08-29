@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Crosshair, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getMapTileConfig } from "@/lib/maps/tiles";
 import type { LatLng } from "@/lib/delivery/pricing";
 import {
+  getSamalMapBounds,
   isWithinSamalIsland,
+  SAMAL_ISLAND_POLYGON,
   SAMAL_MAP_CENTER,
   SAMAL_SERVICE_MESSAGE,
 } from "@/lib/delivery/samal";
@@ -19,6 +22,7 @@ type Props = {
   heightClassName?: string;
   /** Request GPS once when the map is ready. */
   autoLocateOnMount?: boolean;
+  hint?: string;
 };
 
 export function LocationPinMap({
@@ -27,10 +31,12 @@ export function LocationPinMap({
   className,
   heightClassName = "h-64",
   autoLocateOnMount = false,
+  hint,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markerRef = useRef<import("leaflet").Marker | null>(null);
+  const lastValidPinRef = useRef<LatLng>(value ?? SAMAL_MAP_CENTER);
   const [ready, setReady] = useState(false);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
@@ -38,6 +44,38 @@ export function LocationPinMap({
 
   const pin = value ?? SAMAL_MAP_CENTER;
   const inside = isWithinSamalIsland(pin.lat, pin.lng);
+
+  useEffect(() => {
+    if (inside) {
+      lastValidPinRef.current = pin;
+    }
+  }, [inside, pin]);
+
+  const rejectOutsidePin = useCallback(
+    (next: LatLng, revertMarker = true) => {
+      setGeoError(SAMAL_SERVICE_MESSAGE);
+      toast.error(SAMAL_SERVICE_MESSAGE);
+      if (revertMarker && markerRef.current) {
+        const valid = lastValidPinRef.current;
+        markerRef.current.setLatLng([valid.lat, valid.lng]);
+      }
+      return false;
+    },
+    []
+  );
+
+  const applyPin = useCallback(
+    (next: LatLng, revertMarker = true) => {
+      if (!isWithinSamalIsland(next.lat, next.lng)) {
+        return rejectOutsidePin(next, revertMarker);
+      }
+      setGeoError(null);
+      lastValidPinRef.current = next;
+      onChange(next);
+      return true;
+    },
+    [onChange, rejectOutsidePin]
+  );
 
   const useMyLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -52,13 +90,10 @@ export function LocationPinMap({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
         };
-        onChange(next);
+        setGeoLoading(false);
+        if (!applyPin(next, true)) return;
         mapRef.current?.setView([next.lat, next.lng], 14);
         markerRef.current?.setLatLng([next.lat, next.lng]);
-        setGeoLoading(false);
-        if (!isWithinSamalIsland(next.lat, next.lng)) {
-          setGeoError(SAMAL_SERVICE_MESSAGE);
-        }
       },
       () => {
         setGeoLoading(false);
@@ -66,7 +101,7 @@ export function LocationPinMap({
       },
       { enableHighAccuracy: true, timeout: 12000 }
     );
-  }, [onChange]);
+  }, [applyPin]);
 
   useEffect(() => {
     if (!autoLocateOnMount || !ready || autoLocateDoneRef.current) return;
@@ -83,7 +118,6 @@ export function LocationPinMap({
 
       if (cancelled || !containerRef.current || mapRef.current) return;
 
-      // Fix default marker icons in bundlers
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (L.Icon.Default.prototype as any)._getIconUrl;
       L.Icon.Default.mergeOptions({
@@ -95,10 +129,13 @@ export function LocationPinMap({
       });
 
       const tiles = getMapTileConfig();
+      const start = isWithinSamalIsland(pin.lat, pin.lng) ? pin : SAMAL_MAP_CENTER;
       const map = L.map(containerRef.current, {
-        center: [pin.lat, pin.lng],
-        zoom: 12,
+        center: [start.lat, start.lng],
+        zoom: 13,
         scrollWheelZoom: true,
+        maxBounds: L.latLngBounds(getSamalMapBounds()),
+        maxBoundsViscosity: 1,
       });
 
       L.tileLayer(tiles.url, {
@@ -106,19 +143,32 @@ export function LocationPinMap({
         maxZoom: tiles.maxZoom,
       }).addTo(map);
 
-      const marker = L.marker([pin.lat, pin.lng], { draggable: true }).addTo(
+      L.polygon(
+        SAMAL_ISLAND_POLYGON.map((p) => [p.lat, p.lng] as [number, number]),
+        {
+          color: "#176b3a",
+          fillColor: "#176b3a",
+          fillOpacity: 0.08,
+          weight: 2,
+        }
+      ).addTo(map);
+
+      map.fitBounds(L.latLngBounds(getSamalMapBounds(0)), { padding: [16, 16] });
+
+      const marker = L.marker([start.lat, start.lng], { draggable: true }).addTo(
         map
       );
 
       marker.on("dragend", () => {
         const pos = marker.getLatLng();
-        onChange({ lat: pos.lat, lng: pos.lng });
+        applyPin({ lat: pos.lat, lng: pos.lng }, true);
       });
 
       map.on("click", (e: { latlng: { lat: number; lng: number } }) => {
         const next = { lat: e.latlng.lat, lng: e.latlng.lng };
-        marker.setLatLng([next.lat, next.lng]);
-        onChange(next);
+        if (applyPin(next, true)) {
+          marker.setLatLng([next.lat, next.lng]);
+        }
       });
 
       mapRef.current = map;
@@ -143,15 +193,22 @@ export function LocationPinMap({
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current || !markerRef.current) return;
+    if (!markerRef.current) return;
+    if (!isWithinSamalIsland(pin.lat, pin.lng)) {
+      const valid = lastValidPinRef.current;
+      markerRef.current.setLatLng([valid.lat, valid.lng]);
+      return;
+    }
     markerRef.current.setLatLng([pin.lat, pin.lng]);
+    mapRef.current?.panTo([pin.lat, pin.lng], { animate: true, duration: 0.25 });
   }, [pin.lat, pin.lng]);
 
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Tap the map or drag the pin to set your delivery location.
+          {hint ??
+            "Tap inside the green area on Samal Island to set your location."}
         </p>
         <Button
           type="button"
@@ -189,7 +246,7 @@ export function LocationPinMap({
           {SAMAL_SERVICE_MESSAGE}
         </p>
       ) : null}
-      {geoError && !inside ? (
+      {geoError ? (
         <p className="text-xs text-destructive">{geoError}</p>
       ) : null}
       <p className="text-[11px] text-muted-foreground">

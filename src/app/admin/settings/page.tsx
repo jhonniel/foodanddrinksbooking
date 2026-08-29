@@ -25,6 +25,11 @@ import {
   DEFAULT_DELIVERY_SETTINGS,
   DEFAULT_STORE_INFO,
 } from "@/lib/settings/storeConfig";
+import { LocationPinMap } from "@/components/customer/LocationPinMap";
+import {
+  isWithinSamalIsland,
+  SAMAL_SERVICE_MESSAGE,
+} from "@/lib/delivery/samal";
 
 export default function AdminSettingsPage() {
   const [storeName, setStoreName] = useState(STORE_LOCATION.name);
@@ -242,6 +247,23 @@ export default function AdminSettingsPage() {
 
     if (!trimmedName || !trimmedAddress || !trimmedPhone) {
       toast.error("Store name, address, and phone are required.");
+      return;
+    }
+
+    if (
+      !Number.isFinite(storeLat) ||
+      !Number.isFinite(storeLng) ||
+      storeLat < -90 ||
+      storeLat > 90 ||
+      storeLng < -180 ||
+      storeLng > 180
+    ) {
+      toast.error("Set a valid store location on the map or enter coordinates.");
+      return;
+    }
+
+    if (!isWithinSamalIsland(storeLat, storeLng)) {
+      toast.error(SAMAL_SERVICE_MESSAGE);
       return;
     }
 
@@ -571,6 +593,72 @@ export default function AdminSettingsPage() {
                 disabled={!settingsLoaded || storeInfoSaving}
                 onChange={(e) => setStoreAddress(e.target.value)}
               />
+            </div>
+            <div>
+              <Label>Store location</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Pin your store inside Samal Island. Delivery fees are calculated
+                from this point.
+              </p>
+              <div className="mt-2">
+                <LocationPinMap
+                  value={{ lat: storeLat, lng: storeLng }}
+                  onChange={({ lat, lng }) => {
+                    setStoreLat(Math.round(lat * 1e5) / 1e5);
+                    setStoreLng(Math.round(lng * 1e5) / 1e5);
+                  }}
+                  heightClassName="h-52"
+                  hint="Pin your store inside the green Samal Island area."
+                />
+              </div>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="store-lat">Latitude</Label>
+                  <Input
+                    id="store-lat"
+                    type="number"
+                    step="any"
+                    value={storeLat}
+                    disabled={!settingsLoaded || storeInfoSaving}
+                    onChange={(e) => {
+                      const lat = Number(e.target.value);
+                      if (!Number.isFinite(lat)) return;
+                      if (isWithinSamalIsland(lat, storeLng)) {
+                        setStoreLat(lat);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!isWithinSamalIsland(storeLat, storeLng)) {
+                        toast.error(SAMAL_SERVICE_MESSAGE);
+                      }
+                    }}
+                    className="mt-1.5"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="store-lng">Longitude</Label>
+                  <Input
+                    id="store-lng"
+                    type="number"
+                    step="any"
+                    value={storeLng}
+                    disabled={!settingsLoaded || storeInfoSaving}
+                    onChange={(e) => {
+                      const lng = Number(e.target.value);
+                      if (!Number.isFinite(lng)) return;
+                      if (isWithinSamalIsland(storeLat, lng)) {
+                        setStoreLng(lng);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!isWithinSamalIsland(storeLat, storeLng)) {
+                        toast.error(SAMAL_SERVICE_MESSAGE);
+                      }
+                    }}
+                    className="mt-1.5"
+                  />
+                </div>
+              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
