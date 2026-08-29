@@ -374,16 +374,12 @@ export function SavedAddressesCard() {
                       </p>
                     )}
                     {addr.latitude != null &&
-                    addr.longitude != null &&
-                    isWithinSamalIsland(addr.latitude, addr.longitude) ? (
-                      <p className="mt-1 text-[11px] font-medium text-green">
-                        Inside Samal Island
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-[11px] font-medium text-destructive">
-                        Outside service area — edit pin
-                      </p>
-                    )}
+                      addr.longitude != null &&
+                      !isWithinSamalIsland(addr.latitude, addr.longitude) && (
+                        <p className="mt-1 text-[11px] font-medium text-destructive">
+                          Outside service area — edit pin
+                        </p>
+                      )}
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button

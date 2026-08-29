@@ -608,7 +608,7 @@ export default function AdminSettingsPage() {
                     setStoreLng(Math.round(lng * 1e5) / 1e5);
                   }}
                   heightClassName="h-52"
-                  hint="Pin your store inside the green Samal Island area."
+                  hint="Pin your store location on Samal Island."
                 />
               </div>
               <div className="mt-3 grid gap-4 sm:grid-cols-2">

@@ -10,7 +10,6 @@ import type { LatLng } from "@/lib/delivery/pricing";
 import {
   getSamalMapBounds,
   isWithinSamalIsland,
-  SAMAL_ISLAND_POLYGON,
   SAMAL_MAP_CENTER,
   SAMAL_SERVICE_MESSAGE,
 } from "@/lib/delivery/samal";
@@ -143,16 +142,6 @@ export function LocationPinMap({
         maxZoom: tiles.maxZoom,
       }).addTo(map);
 
-      L.polygon(
-        SAMAL_ISLAND_POLYGON.map((p) => [p.lat, p.lng] as [number, number]),
-        {
-          color: "#176b3a",
-          fillColor: "#176b3a",
-          fillOpacity: 0.08,
-          weight: 2,
-        }
-      ).addTo(map);
-
       map.fitBounds(L.latLngBounds(getSamalMapBounds(0)), { padding: [16, 16] });
 
       const marker = L.marker([start.lat, start.lng], { draggable: true }).addTo(
@@ -208,7 +197,7 @@ export function LocationPinMap({
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {hint ??
-            "Tap inside the green area on Samal Island to set your location."}
+            "Tap the map or drag the pin to set your delivery location on Samal Island."}
         </p>
         <Button
           type="button"
@@ -241,13 +230,10 @@ export function LocationPinMap({
         )}
       </div>
 
-      {!inside ? (
+      {geoError || !inside ? (
         <p className="text-xs font-medium text-destructive">
-          {SAMAL_SERVICE_MESSAGE}
+          {geoError ?? SAMAL_SERVICE_MESSAGE}
         </p>
-      ) : null}
-      {geoError ? (
-        <p className="text-xs text-destructive">{geoError}</p>
       ) : null}
       <p className="text-[11px] text-muted-foreground">
         {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)}
