@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppSettings } from "@/lib/settings/types";
 import {
+  DEFAULT_DELIVERY_SETTINGS,
+  DEFAULT_STORE_INFO,
+} from "@/lib/settings/storeConfig";
+import {
   DEFAULT_STORE_HOURS,
   getStoreClosedMessage,
   isStoreOpen,
@@ -41,6 +45,8 @@ export function useStoreSettings() {
   }, []);
 
   const storeHours = settings?.store_hours ?? DEFAULT_STORE_HOURS;
+  const store = settings?.store ?? DEFAULT_STORE_INFO;
+  const delivery = settings?.delivery ?? DEFAULT_DELIVERY_SETTINGS;
 
   const storeOpen = useMemo(
     () => isStoreOpen(storeHours, now),
@@ -57,6 +63,8 @@ export function useStoreSettings() {
     loading,
     purchaseSoon: Boolean(settings?.purchase_soon_mode),
     storeHours,
+    store,
+    delivery,
     storeOpen,
     storeClosedMessage,
   };

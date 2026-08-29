@@ -19,13 +19,16 @@ import {
   formatWeeklySchedule,
   parseStoreHours,
 } from "@/lib/storeHours";
-import type { StoreHoursSettings } from "@/lib/settings/types";
+import type { AppSettings, StoreHoursSettings } from "@/lib/settings/types";
+import {
+  DEFAULT_DELIVERY_SETTINGS,
+  DEFAULT_STORE_INFO,
+} from "@/lib/settings/storeConfig";
 
 export default function AdminSettingsPage() {
   const [storeName, setStoreName] = useState(STORE_LOCATION.name);
   const [storeAddress, setStoreAddress] = useState(STORE_LOCATION.address);
   const [storePhone, setStorePhone] = useState(STORE_LOCATION.phone);
-  const [storeHours, setStoreHours] = useState(STORE_LOCATION.hours);
   const [pointsPerPeso, setPointsPerPeso] = useState(
     String(LOYALTY_SETTINGS.points_per_peso)
   );
@@ -48,6 +51,10 @@ export default function AdminSettingsPage() {
   const [storeHoursSettings, setStoreHoursSettings] =
     useState<StoreHoursSettings>(DEFAULT_STORE_HOURS);
   const [storeHoursSaving, setStoreHoursSaving] = useState(false);
+  const [storeLat, setStoreLat] = useState(DEFAULT_STORE_INFO.lat);
+  const [storeLng, setStoreLng] = useState(DEFAULT_STORE_INFO.lng);
+  const [storeInfoSaving, setStoreInfoSaving] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState<{
     configured: boolean;
     auth: boolean;
@@ -61,15 +68,11 @@ export default function AdminSettingsPage() {
     (async () => {
       try {
         const [settingsRes, statusRes] = await Promise.all([
-          fetch("/api/settings", { credentials: "include" }),
-          fetch("/api/supabase/status", { credentials: "include" }),
+          fetch("/api/settings", { credentials: "include", cache: "no-store" }),
+          fetch("/api/supabase/status", { credentials: "include", cache: "no-store" }),
         ]);
         const json = (await settingsRes.json()) as {
-          settings?: {
-            maintenance_mode?: boolean;
-            purchase_soon_mode?: boolean;
-            store_hours?: StoreHoursSettings;
-          };
+          settings?: AppSettings;
         };
         const status = (await statusRes.json()) as {
           configured: boolean;
@@ -79,15 +82,36 @@ export default function AdminSettingsPage() {
           missing: string[];
         };
         if (!cancelled) {
+          if (!settingsRes.ok) {
+            toast.error("Could not load saved settings.");
+          }
           setMaintenanceMode(Boolean(json.settings?.maintenance_mode));
           setPurchaseSoonMode(Boolean(json.settings?.purchase_soon_mode));
           setStoreHoursSettings(
             parseStoreHours(json.settings?.store_hours ?? DEFAULT_STORE_HOURS)
           );
+          if (json.settings?.store) {
+            setStoreName(json.settings.store.name);
+            setStoreAddress(json.settings.store.address);
+            setStorePhone(json.settings.store.phone);
+            setStoreLat(json.settings.store.lat);
+            setStoreLng(json.settings.store.lng);
+          }
+          if (json.settings?.delivery) {
+            setBaseFee(String(json.settings.delivery.baseFee));
+            setBaseKm(String(json.settings.delivery.baseKm));
+            setPerKmFee(String(json.settings.delivery.perKmFee));
+            setRadiusKm(String(json.settings.delivery.radiusKm));
+            setFreeAbove(String(json.settings.delivery.freeAbove));
+          }
           setSupabaseStatus(status);
+          setSettingsLoaded(true);
         }
       } catch {
-        /* ignore */
+        if (!cancelled) {
+          toast.error("Could not load saved settings.");
+          setSettingsLoaded(true);
+        }
       } finally {
         if (!cancelled) setMaintenanceLoading(false);
       }
@@ -212,8 +236,85 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const handleSave = () => {
-    toast.success("Settings saved");
+  const handleSaveStoreInfo = async () => {
+    const trimmedName = storeName.trim();
+    const trimmedAddress = storeAddress.trim();
+    const trimmedPhone = storePhone.trim();
+
+    if (!trimmedName || !trimmedAddress || !trimmedPhone) {
+      toast.error("Store name, address, and phone are required.");
+      return;
+    }
+
+    const baseFeeNum = Number(baseFee);
+    const baseKmNum = Number(baseKm);
+    const perKmFeeNum = Number(perKmFee);
+    const radiusKmNum = Number(radiusKm);
+    const freeAboveNum = Number(freeAbove);
+
+    if (
+      [baseFeeNum, baseKmNum, perKmFeeNum, radiusKmNum, freeAboveNum].some(
+        (n) => !Number.isFinite(n) || n < 0
+      ) ||
+      baseKmNum <= 0 ||
+      radiusKmNum <= 0
+    ) {
+      toast.error("Check delivery fee fields — numbers must be valid.");
+      return;
+    }
+
+    setStoreInfoSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          store: {
+            name: trimmedName,
+            address: trimmedAddress,
+            phone: trimmedPhone,
+            lat: storeLat,
+            lng: storeLng,
+            hours: formatWeeklySchedule(storeHoursSettings),
+          },
+          delivery: {
+            ...DEFAULT_DELIVERY_SETTINGS,
+            baseFee: baseFeeNum,
+            baseKm: baseKmNum,
+            perKmFee: perKmFeeNum,
+            radiusKm: radiusKmNum,
+            freeAbove: freeAboveNum,
+          },
+        }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        settings?: AppSettings;
+      };
+      if (!res.ok) {
+        toast.error(json.error ?? "Could not save store info.");
+        return;
+      }
+      if (json.settings?.store) {
+        setStoreName(json.settings.store.name);
+        setStoreAddress(json.settings.store.address);
+        setStorePhone(json.settings.store.phone);
+        setStoreLat(json.settings.store.lat);
+        setStoreLng(json.settings.store.lng);
+      }
+      if (json.settings?.delivery) {
+        setBaseFee(String(json.settings.delivery.baseFee));
+        setBaseKm(String(json.settings.delivery.baseKm));
+        setPerKmFee(String(json.settings.delivery.perKmFee));
+        setRadiusKm(String(json.settings.delivery.radiusKm));
+        setFreeAbove(String(json.settings.delivery.freeAbove));
+      }
+      toast.success("Store info saved");
+    } catch {
+      toast.error("Could not save store info.");
+    } finally {
+      setStoreInfoSaving(false);
+    }
   };
 
   return (
@@ -451,11 +552,15 @@ export default function AdminSettingsPage() {
             <h2 className="text-lg font-semibold text-navy">Store Info</h2>
           </div>
           <div className="space-y-4">
+            {!settingsLoaded ? (
+              <p className="text-sm text-muted-foreground">Loading saved store info…</p>
+            ) : null}
             <div>
               <Label htmlFor="store-name">Store Name</Label>
               <Input
                 id="store-name"
                 value={storeName}
+                disabled={!settingsLoaded || storeInfoSaving}
                 onChange={(e) => setStoreName(e.target.value)}
               />
             </div>
@@ -464,6 +569,7 @@ export default function AdminSettingsPage() {
               <Input
                 id="store-address"
                 value={storeAddress}
+                disabled={!settingsLoaded || storeInfoSaving}
                 onChange={(e) => setStoreAddress(e.target.value)}
               />
             </div>
@@ -473,15 +579,8 @@ export default function AdminSettingsPage() {
                 <Input
                   id="store-phone"
                   value={storePhone}
+                  disabled={!settingsLoaded || storeInfoSaving}
                   onChange={(e) => setStorePhone(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="store-hours">Hours</Label>
-                <Input
-                  id="store-hours"
-                  value={storeHours}
-                  onChange={(e) => setStoreHours(e.target.value)}
                 />
               </div>
             </div>
@@ -492,6 +591,7 @@ export default function AdminSettingsPage() {
                   id="base-fee"
                   type="number"
                   value={baseFee}
+                  disabled={!settingsLoaded || storeInfoSaving}
                   onChange={(e) => setBaseFee(e.target.value)}
                 />
               </div>
@@ -501,6 +601,7 @@ export default function AdminSettingsPage() {
                   id="base-km"
                   type="number"
                   value={baseKm}
+                  disabled={!settingsLoaded || storeInfoSaving}
                   onChange={(e) => setBaseKm(e.target.value)}
                 />
               </div>
@@ -510,6 +611,7 @@ export default function AdminSettingsPage() {
                   id="per-km"
                   type="number"
                   value={perKmFee}
+                  disabled={!settingsLoaded || storeInfoSaving}
                   onChange={(e) => setPerKmFee(e.target.value)}
                 />
               </div>
@@ -519,6 +621,7 @@ export default function AdminSettingsPage() {
                   id="radius-km"
                   type="number"
                   value={radiusKm}
+                  disabled={!settingsLoaded || storeInfoSaving}
                   onChange={(e) => setRadiusKm(e.target.value)}
                 />
               </div>
@@ -528,14 +631,23 @@ export default function AdminSettingsPage() {
                   id="free-above"
                   type="number"
                   value={freeAbove}
+                  disabled={!settingsLoaded || storeInfoSaving}
                   onChange={(e) => setFreeAbove(e.target.value)}
                 />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
               ₱{baseFee} for the first {baseKm} km, then ₱{perKmFee} per
-              succeeding km (rounded up).
+              succeeding km (rounded up). Opening hours come from the Store
+              Hours section above.
             </p>
+            <Button
+              className="w-full bg-green hover:bg-green/90"
+              disabled={!settingsLoaded || maintenanceLoading || storeInfoSaving}
+              onClick={() => void handleSaveStoreInfo()}
+            >
+              {storeInfoSaving ? "Saving store info..." : "Save Store Info"}
+            </Button>
           </div>
         </section>
 
@@ -615,9 +727,10 @@ export default function AdminSettingsPage() {
         <Button
           className="w-full bg-green hover:bg-green/90"
           size="lg"
-          onClick={handleSave}
+          disabled={!settingsLoaded || storeInfoSaving}
+          onClick={() => void handleSaveStoreInfo()}
         >
-          Save Settings
+          {storeInfoSaving ? "Saving..." : "Save Store Info"}
         </Button>
       </div>
     </div>

@@ -1,32 +1,51 @@
 import "server-only";
 
 import {
-  getSupabaseAnonKey,
   getSupabaseServiceRoleKey,
   getSupabaseUrl,
   isSupabaseConfigured,
 } from "@/lib/auth/config";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_STORE_HOURS, isStoreOpen, parseStoreHours } from "@/lib/storeHours";
-import type { AppSettings, StoreHoursSettings } from "./types";
+import {
+  DEFAULT_DELIVERY_SETTINGS,
+  DEFAULT_STORE_INFO,
+  parseDeliverySettings,
+  parseStoreInfo,
+} from "./storeConfig";
+import type { AppSettings, DeliverySettings, StoreHoursSettings, StoreInfoSettings } from "./types";
 
-export type { AppSettings, StoreHoursSettings } from "./types";
+export type {
+  AppSettings,
+  DeliverySettings,
+  StoreHoursSettings,
+  StoreInfoSettings,
+} from "./types";
 
 const MAINTENANCE_KEY = "maintenance_mode";
 const PURCHASE_SOON_KEY = "purchase_soon_mode";
 const STORE_HOURS_KEY = "store_hours";
+const STORE_KEY = "store";
+const DELIVERY_KEY = "delivery";
 
 const DEFAULT_SETTINGS: AppSettings = {
   maintenance_mode: false,
   purchase_soon_mode: false,
   store_hours: DEFAULT_STORE_HOURS,
+  store: DEFAULT_STORE_INFO,
+  delivery: DEFAULT_DELIVERY_SETTINGS,
   updated_at: null,
 };
 
 function createServiceSupabase() {
   const url = getSupabaseUrl();
-  const key = getSupabaseServiceRoleKey() || getSupabaseAnonKey();
-  return createClient(url, key, {
+  const serviceKey = getSupabaseServiceRoleKey();
+  if (!serviceKey) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is required to read or write app settings."
+    );
+  }
+  return createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -45,7 +64,13 @@ async function getSupabaseSettings(): Promise<AppSettings> {
   const { data, error } = await supabase
     .from("app_settings")
     .select("key, value, updated_at")
-    .in("key", [MAINTENANCE_KEY, PURCHASE_SOON_KEY, STORE_HOURS_KEY]);
+    .in("key", [
+      MAINTENANCE_KEY,
+      PURCHASE_SOON_KEY,
+      STORE_HOURS_KEY,
+      STORE_KEY,
+      DELIVERY_KEY,
+    ]);
 
   if (error) {
     console.error("[settings] supabase read failed", error.message);
@@ -56,6 +81,8 @@ async function getSupabaseSettings(): Promise<AppSettings> {
   const maintenanceRow = rows.find((row) => row.key === MAINTENANCE_KEY);
   const purchaseSoonRow = rows.find((row) => row.key === PURCHASE_SOON_KEY);
   const storeHoursRow = rows.find((row) => row.key === STORE_HOURS_KEY);
+  const storeRow = rows.find((row) => row.key === STORE_KEY);
+  const deliveryRow = rows.find((row) => row.key === DELIVERY_KEY);
   const updated_at =
     rows
       .map((row) => row.updated_at)
@@ -67,6 +94,8 @@ async function getSupabaseSettings(): Promise<AppSettings> {
     maintenance_mode: parseBooleanSetting(maintenanceRow?.value),
     purchase_soon_mode: parseBooleanSetting(purchaseSoonRow?.value),
     store_hours: parseStoreHours(storeHoursRow?.value),
+    store: parseStoreInfo(storeRow?.value),
+    delivery: parseDeliverySettings(deliveryRow?.value),
     updated_at,
   };
 }
@@ -118,7 +147,14 @@ export async function isStoreCurrentlyOpen(): Promise<boolean> {
 
 export async function updateAppSettings(
   patch: Partial<
-    Pick<AppSettings, "maintenance_mode" | "purchase_soon_mode" | "store_hours">
+    Pick<
+      AppSettings,
+      | "maintenance_mode"
+      | "purchase_soon_mode"
+      | "store_hours"
+      | "store"
+      | "delivery"
+    >
   >
 ): Promise<AppSettings> {
   if (isSupabaseConfigured()) {
@@ -139,6 +175,15 @@ export async function updateAppSettings(
       latestUpdatedAt = await upsertSupabaseSetting(
         STORE_HOURS_KEY,
         patch.store_hours
+      );
+    }
+    if (patch.store !== undefined) {
+      latestUpdatedAt = await upsertSupabaseSetting(STORE_KEY, patch.store);
+    }
+    if (patch.delivery !== undefined) {
+      latestUpdatedAt = await upsertSupabaseSetting(
+        DELIVERY_KEY,
+        patch.delivery
       );
     }
     const settings = await getSupabaseSettings();

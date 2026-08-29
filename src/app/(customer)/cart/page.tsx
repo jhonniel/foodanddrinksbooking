@@ -20,7 +20,6 @@ import { formatCurrency } from "@/lib/utils/format";
 import { useDataStore } from "@/stores/data";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { PURCHASE_SOON_MESSAGE } from "@/lib/settings/types";
-import { DELIVERY_CONFIG } from "@/data/demo";
 import {
   formatDeliveryRateLabel,
   formatDistanceKm,
@@ -35,7 +34,7 @@ export default function CartPage() {
   const products = useDataStore((s) => s.products);
   const inventory = useDataStore((s) => s.inventory);
   const catalogHydrated = useDataStore((s) => s.hydrated);
-  const { purchaseSoon, storeOpen, storeClosedMessage } = useStoreSettings();
+  const { purchaseSoon, storeOpen, storeClosedMessage, delivery } = useStoreSettings();
   const fulfillmentTiming = useCartStore((s) => s.fulfillmentTiming);
   const checkoutBlocked = purchaseSoon || (!storeOpen && fulfillmentTiming !== "SCHEDULED");
   const checkoutBlockMessage = purchaseSoon
@@ -255,10 +254,10 @@ export default function CartPage() {
           </div>
         </div>
         {orderType === "DELIVERY" &&
-          subtotal < DELIVERY_CONFIG.freeAbove &&
+          subtotal < delivery.freeAbove &&
           deliveryFee > 0 && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Add {formatCurrency(DELIVERY_CONFIG.freeAbove - subtotal)} more
+              Add {formatCurrency(delivery.freeAbove - subtotal)} more
               for free delivery
             </p>
           )}

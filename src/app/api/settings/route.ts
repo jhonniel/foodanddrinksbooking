@@ -5,14 +5,30 @@ import { jsonError } from "@/lib/auth/http";
 import { MAINTENANCE_COOKIE } from "@/lib/auth/config";
 import { getAppSettings, updateAppSettings } from "@/lib/settings/store";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const YEAR_SEC = 60 * 60 * 24 * 365;
+
+function noStoreJson(
+  body: Record<string, unknown>,
+  init?: ResponseInit
+) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      "Cache-Control": "no-store, max-age=0",
+    },
+  });
+}
 
 function withMaintenanceCookie(
   body: Record<string, unknown>,
   enabled: boolean,
   init?: ResponseInit
 ) {
-  const res = NextResponse.json(body, init);
+  const res = noStoreJson(body, init);
   res.cookies.set(MAINTENANCE_COOKIE, enabled ? "1" : "0", {
     path: "/",
     sameSite: "lax",
@@ -46,17 +62,41 @@ const storeHoursSchema = z.object({
   schedule: z.record(z.string(), dayScheduleSchema),
 });
 
+const storeInfoSchema = z.object({
+  name: z.string().min(1).max(120),
+  address: z.string().min(1).max(300),
+  phone: z.string().min(1).max(40),
+  lat: z.number().finite(),
+  lng: z.number().finite(),
+  hours: z.string().max(120),
+});
+
+const deliverySettingsSchema = z.object({
+  baseFee: z.number().nonnegative(),
+  baseKm: z.number().positive(),
+  perKmFee: z.number().nonnegative(),
+  freeAbove: z.number().nonnegative(),
+  radiusKm: z.number().positive(),
+  baseMinutes: z.number().nonnegative(),
+  minutesPerKm: z.number().nonnegative(),
+  estimatedMinutes: z.number().positive(),
+});
+
 const patchSchema = z
   .object({
     maintenance_mode: z.boolean().optional(),
     purchase_soon_mode: z.boolean().optional(),
     store_hours: storeHoursSchema.optional(),
+    store: storeInfoSchema.optional(),
+    delivery: deliverySettingsSchema.optional(),
   })
   .refine(
     (data) =>
       data.maintenance_mode !== undefined ||
       data.purchase_soon_mode !== undefined ||
-      data.store_hours !== undefined,
+      data.store_hours !== undefined ||
+      data.store !== undefined ||
+      data.delivery !== undefined,
     { message: "No settings to update." }
   );
 

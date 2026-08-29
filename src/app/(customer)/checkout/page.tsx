@@ -28,7 +28,6 @@ import { validateCartStock } from "@/lib/cart/stockLimits";
 import { fetchCurrentProfile } from "@/services/authService";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import { STORE_LOCATION } from "@/data/demo";
 import {
   calculateDeliveryFee,
   formatDeliveryRateLabel,
@@ -78,7 +77,7 @@ export default function CheckoutPage() {
   const inventory = useDataStore((s) => s.inventory);
   const catalogHydrated = useDataStore((s) => s.hydrated);
   const { subtotal, deliveryQuote, deliveryFee, total } = useCartTotals();
-  const { purchaseSoon, storeOpen, storeClosedMessage, storeHours, loading: settingsLoading } =
+  const { purchaseSoon, storeOpen, storeClosedMessage, storeHours, store, delivery, loading: settingsLoading } =
     useStoreSettings();
   const hoursLabel = formatWeeklySchedule(storeHours);
 
@@ -364,8 +363,8 @@ export default function CheckoutPage() {
           />
           {orderType === "PICKUP" && (
             <div className="rounded-2xl bg-light-blue p-4 text-sm">
-              <p className="font-semibold text-navy">{STORE_LOCATION.name}</p>
-              <p className="mt-1 text-muted-foreground">{STORE_LOCATION.address}</p>
+              <p className="font-semibold text-navy">{store.name}</p>
+              <p className="mt-1 text-muted-foreground">{store.address}</p>
               <p className="mt-1 text-muted-foreground">{hoursLabel}</p>
             </div>
           )}
@@ -423,7 +422,9 @@ export default function CheckoutPage() {
                     const quote = hasCoords
                       ? calculateDeliveryFee(
                           { lat: addr.latitude!, lng: addr.longitude! },
-                          subtotal
+                          subtotal,
+                          delivery,
+                          store
                         )
                       : null;
                     return (
@@ -604,7 +605,7 @@ export default function CheckoutPage() {
               </div>
               {orderType === "DELIVERY" && deliveryFee > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  {formatDeliveryRateLabel()} ·{" "}
+                  {formatDeliveryRateLabel(delivery)} ·{" "}
                   {formatDistanceKm(deliveryQuote.distanceKm)}
                   {deliveryQuote.breakdown.succeedingKm > 0 &&
                     ` (+${deliveryQuote.breakdown.succeedingKm} km after first)`}
@@ -636,7 +637,7 @@ export default function CheckoutPage() {
               </span>
               {orderType === "DELIVERY" && address
                 ? address.full_address
-                : STORE_LOCATION.address}
+                : store.address}
             </p>
             <p className="mt-1">
               <span className="font-semibold text-navy">When: </span>

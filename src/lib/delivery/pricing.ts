@@ -1,4 +1,5 @@
-import { STORE_LOCATION, DELIVERY_CONFIG } from "@/data/demo";
+import { DELIVERY_CONFIG, STORE_LOCATION } from "@/data/demo";
+import type { DeliverySettings } from "@/lib/settings/types";
 import { isWithinSamalIsland } from "@/lib/delivery/samal";
 
 export interface LatLng {
@@ -35,9 +36,12 @@ export function distanceKmBetween(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export function distanceFromStore(destination: LatLng): number {
+export function distanceFromStore(
+  destination: LatLng,
+  store = STORE_LOCATION
+): number {
   return distanceKmBetween(
-    { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng },
+    { lat: store.lat, lng: store.lng },
     destination
   );
 }
@@ -49,9 +53,21 @@ export function distanceFromStore(destination: LatLng): number {
  */
 export function calculateDeliveryFee(
   destination: LatLng | null | undefined,
-  subtotal = 0
+  subtotal = 0,
+  config: Pick<
+    DeliverySettings,
+    | "baseFee"
+    | "baseKm"
+    | "perKmFee"
+    | "freeAbove"
+    | "baseMinutes"
+    | "minutesPerKm"
+    | "estimatedMinutes"
+  > = DELIVERY_CONFIG,
+  store = STORE_LOCATION
 ): DeliveryQuote {
-  const { baseFee, baseKm, perKmFee } = DELIVERY_CONFIG;
+  const { baseFee, baseKm, perKmFee, freeAbove, baseMinutes, minutesPerKm, estimatedMinutes } =
+    config;
 
   if (!destination || destination.lat == null || destination.lng == null) {
     return {
@@ -59,7 +75,7 @@ export function calculateDeliveryFee(
       fee: baseFee,
       isFree: false,
       withinRadius: false,
-      estimatedMinutes: DELIVERY_CONFIG.estimatedMinutes,
+      estimatedMinutes,
       breakdown: {
         baseFee,
         distanceFee: 0,
@@ -69,21 +85,18 @@ export function calculateDeliveryFee(
   }
 
   const withinRadius = isWithinSamalIsland(destination.lat, destination.lng);
-  const rawKm = distanceFromStore(destination);
+  const rawKm = distanceFromStore(destination, store);
   const distanceKm = Math.round(rawKm * 10) / 10;
   const succeedingKm = Math.max(0, Math.ceil(distanceKm - baseKm));
   const distanceFee = succeedingKm * perKmFee;
   const calculatedFee = baseFee + distanceFee;
 
-  const isFree = withinRadius && subtotal >= DELIVERY_CONFIG.freeAbove;
+  const isFree = withinRadius && subtotal >= freeAbove;
   const fee = !withinRadius ? 0 : isFree ? 0 : calculatedFee;
 
-  const estimatedMinutes = Math.max(
+  const etaMinutes = Math.max(
     15,
-    Math.round(
-      DELIVERY_CONFIG.baseMinutes +
-        distanceKm * DELIVERY_CONFIG.minutesPerKm
-    )
+    Math.round(baseMinutes + distanceKm * minutesPerKm)
   );
 
   return {
@@ -91,7 +104,7 @@ export function calculateDeliveryFee(
     fee,
     isFree,
     withinRadius,
-    estimatedMinutes,
+    estimatedMinutes: etaMinutes,
     breakdown: {
       baseFee,
       distanceFee,
@@ -100,11 +113,13 @@ export function calculateDeliveryFee(
   };
 }
 
+export function formatDeliveryRateLabel(
+  config: Pick<DeliverySettings, "baseFee" | "baseKm" | "perKmFee"> = DELIVERY_CONFIG
+): string {
+  return `₱${config.baseFee} first ${config.baseKm} km · ₱${config.perKmFee}/km after · Samal Island only`;
+}
+
 export function formatDistanceKm(km: number): string {
   if (km < 0.1) return "< 0.1 km";
   return `${km.toFixed(1)} km`;
-}
-
-export function formatDeliveryRateLabel(): string {
-  return `₱${DELIVERY_CONFIG.baseFee} first ${DELIVERY_CONFIG.baseKm} km · ₱${DELIVERY_CONFIG.perKmFee}/km after · Samal Island only`;
 }

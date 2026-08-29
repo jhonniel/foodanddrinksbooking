@@ -311,3 +311,110 @@ export function buildPointsLedgerFromOrders(
     b.created_at.localeCompare(a.created_at)
   );
 }
+
+export async function adjustCustomerPoints(
+  client: OrdersClient,
+  input: {
+    customerId: string;
+    amount: number;
+    note?: string;
+    adminName?: string;
+    idempotencyKey?: string;
+  }
+): Promise<
+  | {
+      ok: true;
+      transaction: PointsTransaction;
+      pointsBalance: number;
+      lifetimePoints: number;
+    }
+  | { ok: false; error: string }
+> {
+  const amount = Math.trunc(input.amount);
+  if (!Number.isFinite(amount) || amount === 0) {
+    return { ok: false, error: "Enter a non-zero points amount." };
+  }
+
+  const { data: profile, error: profileError } = await client
+    .from("profiles")
+    .select("id, role, points_balance, lifetime_points")
+    .eq("id", input.customerId)
+    .maybeSingle();
+
+  if (profileError) {
+    return { ok: false, error: profileError.message };
+  }
+  if (!profile?.id) {
+    return { ok: false, error: "Customer not found." };
+  }
+  if (profile.role !== "CUSTOMER") {
+    return { ok: false, error: "Points can only be adjusted for customers." };
+  }
+
+  const balance = Number(profile.points_balance ?? 0);
+  const lifetime = Number(profile.lifetime_points ?? 0);
+  const nextBalance = Math.max(0, balance + amount);
+  const nextLifetime = amount > 0 ? lifetime + amount : lifetime;
+
+  if (amount < 0 && nextBalance === balance) {
+    return { ok: false, error: "Customer does not have enough points." };
+  }
+
+  const trimmedNote = input.note?.trim();
+  const adminPrefix = input.adminName?.trim()
+    ? `By ${input.adminName.trim()} · `
+    : "";
+  const description =
+    trimmedNote && trimmedNote.length > 0
+      ? `${adminPrefix}${trimmedNote}`
+      : amount > 0
+        ? `${adminPrefix}Points granted by admin`
+        : `${adminPrefix}Points adjusted by admin`;
+
+  const idempotencyKey =
+    input.idempotencyKey ?? `adjust:${input.customerId}:${Date.now()}`;
+  const now = new Date().toISOString();
+
+  const { data: txRow, error: txError } = await client
+    .from("points_transactions")
+    .insert({
+      customer_id: input.customerId,
+      order_id: null,
+      reward_id: null,
+      type: "ADJUSTED",
+      points: amount,
+      balance_after: nextBalance,
+      description,
+      idempotency_key: idempotencyKey,
+      created_at: now,
+    })
+    .select("*")
+    .single();
+
+  if (txError) {
+    if (/duplicate|unique/i.test(txError.message)) {
+      return { ok: false, error: "This points adjustment was already applied." };
+    }
+    return { ok: false, error: txError.message };
+  }
+
+  const { error: updateError } = await client
+    .from("profiles")
+    .update({
+      points_balance: nextBalance,
+      lifetime_points: nextLifetime,
+      updated_at: now,
+    })
+    .eq("id", input.customerId);
+
+  if (updateError) {
+    return { ok: false, error: updateError.message };
+  }
+
+  return {
+    ok: true,
+    transaction: mapTx(txRow as Record<string, unknown>),
+    pointsBalance: nextBalance,
+    lifetimePoints: nextLifetime,
+  };
+}

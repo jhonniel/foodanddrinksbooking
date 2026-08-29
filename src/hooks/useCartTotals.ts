@@ -7,6 +7,7 @@ import {
   type DeliveryQuote,
 } from "@/lib/delivery/pricing";
 import { calculateOrderPointsEarned } from "@/services/loyaltyService";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
 
 const PICKUP_QUOTE: DeliveryQuote = {
   distanceKm: 0,
@@ -23,6 +24,7 @@ const PICKUP_QUOTE: DeliveryQuote = {
  * they return new objects every time and cause infinite re-renders.
  */
 export function useCartTotals() {
+  const { store, delivery } = useStoreSettings();
   const items = useCartStore((s) => s.items);
   const orderType = useCartStore((s) => s.orderType);
   const deliveryLocation = useCartStore((s) => s.deliveryLocation);
@@ -37,7 +39,7 @@ export function useCartTotals() {
     const deliveryQuote =
       orderType === "PICKUP"
         ? PICKUP_QUOTE
-        : calculateDeliveryFee(deliveryLocation, subtotal);
+        : calculateDeliveryFee(deliveryLocation, subtotal, delivery, store);
     const deliveryFee = deliveryQuote.fee;
     const total = Math.max(
       0,
@@ -72,6 +74,8 @@ export function useCartTotals() {
     promoDiscount,
     pointsDiscount,
     pointsToUse,
+    delivery,
+    store,
   ]);
 }
 

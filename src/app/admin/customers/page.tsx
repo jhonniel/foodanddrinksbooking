@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import {
   Dialog,
@@ -95,6 +96,9 @@ export default function AdminCustomersPage() {
   const [ledger, setLedger] = useState<LedgerPayload | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [grantAmount, setGrantAmount] = useState("");
+  const [grantNote, setGrantNote] = useState("");
+  const [granting, setGranting] = useState(false);
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -168,6 +172,8 @@ export default function AdminCustomersPage() {
     setLedgerCustomer(customer);
     setLedger(null);
     setLedgerError(null);
+    setGrantAmount("");
+    setGrantNote("");
     setLedgerLoading(true);
     try {
       const res = await fetch(`/api/customers/${customer.id}/ledger`, {
@@ -186,6 +192,88 @@ export default function AdminCustomersPage() {
       setLedgerError("Could not load customer ledger.");
     } finally {
       setLedgerLoading(false);
+    }
+  };
+
+  const reloadLedger = async (customerId: string) => {
+    const res = await fetch(`/api/customers/${customerId}/ledger`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const data = (await res.json().catch(() => null)) as
+      | (LedgerPayload & { error?: string })
+      | null;
+    if (!res.ok || !data?.customer) {
+      throw new Error(data?.error || "Could not refresh ledger.");
+    }
+    setLedger(data);
+    setRows((prev) => {
+      const next = prev.map((row) =>
+        row.id === customerId
+          ? {
+              ...row,
+              points_balance: data.customer.points_balance,
+              lifetime_points: data.customer.lifetime_points,
+            }
+          : row
+      );
+      setCustomers(next);
+      return next;
+    });
+    setLedgerCustomer((prev) =>
+      prev?.id === customerId
+        ? {
+            ...prev,
+            points_balance: data.customer.points_balance,
+            lifetime_points: data.customer.lifetime_points,
+          }
+        : prev
+    );
+  };
+
+  const handleGrantPoints = async () => {
+    if (!ledgerCustomer) return;
+
+    const amount = Number.parseInt(grantAmount, 10);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a positive number of points to grant.");
+      return;
+    }
+
+    setGranting(true);
+    try {
+      const res = await fetch(`/api/customers/${ledgerCustomer.id}/points`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          note: grantNote.trim() || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        pointsBalance?: number;
+      } | null;
+
+      if (!res.ok) {
+        toast.error(data?.error || "Could not grant points.");
+        return;
+      }
+
+      toast.success(
+        `Granted ${formatPoints(amount)} points. New balance: ${formatPoints(
+          data?.pointsBalance ?? 0
+        )}.`
+      );
+      setGrantAmount("");
+      setGrantNote("");
+      await reloadLedger(ledgerCustomer.id);
+      await refresh({ silent: true });
+    } catch {
+      toast.error("Could not grant points.");
+    } finally {
+      setGranting(false);
     }
   };
 
@@ -549,6 +637,52 @@ export default function AdminCustomersPage() {
                         <p className="mt-1 text-sm font-semibold text-navy">
                           {formatPoints(ledger.summary.pointsRedeemedTotal)} pts
                         </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-border bg-white p-4 shadow-card">
+                      <p className="text-sm font-semibold text-navy">
+                        Grant points
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Add loyalty points directly to this customer&apos;s
+                        balance.
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <Label htmlFor="grant-points-amount">Points</Label>
+                          <Input
+                            id="grant-points-amount"
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={grantAmount}
+                            onChange={(e) => setGrantAmount(e.target.value)}
+                            placeholder="100"
+                            className="mt-1 rounded-xl"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="grant-points-note">
+                            Note (optional)
+                          </Label>
+                          <Textarea
+                            id="grant-points-note"
+                            value={grantNote}
+                            onChange={(e) => setGrantNote(e.target.value)}
+                            placeholder="Birthday bonus, apology, promo…"
+                            rows={2}
+                            className="mt-1 rounded-xl"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          className="w-full rounded-xl bg-green hover:bg-green/90"
+                          disabled={granting}
+                          onClick={() => void handleGrantPoints()}
+                        >
+                          {granting ? "Granting…" : "Grant points"}
+                        </Button>
                       </div>
                     </div>
 
