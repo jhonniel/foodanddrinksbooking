@@ -47,7 +47,7 @@ export function distanceFromStore(
 }
 
 /**
- * ₱10 for the first 1 km, then ₱2 per succeeding km (rounded up).
+ * ₱30 for the first 1 km, then ₱10 per succeeding km (rounded up).
  * Free when subtotal >= freeAbove.
  * Delivery only inside Samal Island.
  */

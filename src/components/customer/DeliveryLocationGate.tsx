@@ -14,7 +14,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LocationPinMap } from "@/components/customer/LocationPinMap";
+import { DeliveryFeePreview } from "@/components/customer/DeliveryFeePreview";
 import { useCartStore } from "@/stores/cart";
+import { useCartTotals } from "@/hooks/useCartTotals";
 import type { LatLng } from "@/lib/delivery/pricing";
 import {
   isWithinSamalIsland,
@@ -28,6 +30,7 @@ export function DeliveryLocationGate() {
   const deliveryLocation = useCartStore((s) => s.deliveryLocation);
   const setDeliveryLocation = useCartStore((s) => s.setDeliveryLocation);
   const setOrderType = useCartStore((s) => s.setOrderType);
+  const { subtotal } = useCartTotals();
 
   const [open, setOpen] = useState(false);
   const [pin, setPin] = useState<LatLng>(
@@ -91,7 +94,13 @@ export function DeliveryLocationGate() {
         </DialogStickyHeader>
 
         <DialogScrollBody className="space-y-4">
-          <LocationPinMap value={pin} onChange={setPin} heightClassName="h-56" />
+          <LocationPinMap
+            value={pin}
+            onChange={setPin}
+            autoLocateOnMount
+            heightClassName="h-56"
+          />
+          <DeliveryFeePreview pin={pin} subtotal={subtotal} />
         </DialogScrollBody>
 
         <DialogStickyFooter>

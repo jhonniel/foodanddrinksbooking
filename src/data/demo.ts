@@ -766,11 +766,11 @@ export const STORE_LOCATION = {
  */
 export const DELIVERY_CONFIG = {
   /** Fee for the first baseKm kilometers */
-  baseFee: 10,
+  baseFee: 30,
   /** Kilometers included in the base fee */
   baseKm: 1,
   /** Fee per kilometer after the first baseKm */
-  perKmFee: 2,
+  perKmFee: 10,
   /** Free delivery threshold (subtotal) */
   freeAbove: 500,
   /** Legacy display; service area is Samal Island polygon */
@@ -779,6 +779,6 @@ export const DELIVERY_CONFIG = {
   baseMinutes: 15,
   minutesPerKm: 4,
   /** Legacy flat fallback (unused when coords exist) */
-  fee: 10,
+  fee: 30,
   estimatedMinutes: 30,
 };

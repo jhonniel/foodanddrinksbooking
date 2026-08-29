@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Crosshair, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,8 @@ type Props = {
   onChange: (next: LatLng) => void;
   className?: string;
   heightClassName?: string;
+  /** Request GPS once when the map is ready. */
+  autoLocateOnMount?: boolean;
 };
 
 export function LocationPinMap({
@@ -24,6 +26,7 @@ export function LocationPinMap({
   onChange,
   className,
   heightClassName = "h-64",
+  autoLocateOnMount = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
@@ -31,9 +34,45 @@ export function LocationPinMap({
   const [ready, setReady] = useState(false);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+  const autoLocateDoneRef = useRef(false);
 
   const pin = value ?? SAMAL_MAP_CENTER;
   const inside = isWithinSamalIsland(pin.lat, pin.lng);
+
+  const useMyLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGeoError("Location is not supported on this device.");
+      return;
+    }
+    setGeoLoading(true);
+    setGeoError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const next = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        onChange(next);
+        mapRef.current?.setView([next.lat, next.lng], 14);
+        markerRef.current?.setLatLng([next.lat, next.lng]);
+        setGeoLoading(false);
+        if (!isWithinSamalIsland(next.lat, next.lng)) {
+          setGeoError(SAMAL_SERVICE_MESSAGE);
+        }
+      },
+      () => {
+        setGeoLoading(false);
+        setGeoError("Could not get your location. Pin it on the map instead.");
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    );
+  }, [onChange]);
+
+  useEffect(() => {
+    if (!autoLocateOnMount || !ready || autoLocateDoneRef.current) return;
+    autoLocateDoneRef.current = true;
+    useMyLocation();
+  }, [autoLocateOnMount, ready, useMyLocation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,35 +146,6 @@ export function LocationPinMap({
     if (!mapRef.current || !markerRef.current) return;
     markerRef.current.setLatLng([pin.lat, pin.lng]);
   }, [pin.lat, pin.lng]);
-
-  const useMyLocation = () => {
-    if (!navigator.geolocation) {
-      setGeoError("Location is not supported on this device.");
-      return;
-    }
-    setGeoLoading(true);
-    setGeoError(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const next = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        };
-        onChange(next);
-        mapRef.current?.setView([next.lat, next.lng], 14);
-        markerRef.current?.setLatLng([next.lat, next.lng]);
-        setGeoLoading(false);
-        if (!isWithinSamalIsland(next.lat, next.lng)) {
-          setGeoError(SAMAL_SERVICE_MESSAGE);
-        }
-      },
-      () => {
-        setGeoLoading(false);
-        setGeoError("Could not get your location. Pin it on the map instead.");
-      },
-      { enableHighAccuracy: true, timeout: 12000 }
-    );
-  };
 
   return (
     <div className={cn("space-y-2", className)}>

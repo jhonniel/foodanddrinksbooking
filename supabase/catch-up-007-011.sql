@@ -84,3 +84,8 @@ ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'QRPH';
 -- 014: COD cash amount (for driver change preparation)
 ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS cod_cash_amount DECIMAL(10, 2) NULL;
+
+-- 015: delivery pricing (₱30 first 1 km, ₱10/km after)
+UPDATE app_settings
+SET value = COALESCE(value, '{}'::jsonb) || '{"baseFee": 30, "baseKm": 1, "perKmFee": 10}'::jsonb
+WHERE key = 'delivery';

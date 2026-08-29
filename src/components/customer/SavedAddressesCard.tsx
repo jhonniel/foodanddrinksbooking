@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { MapPin, Pencil, Plus, Trash2, Loader2, Star } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MapPin, Pencil, Plus, Trash2, Loader2, Star, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,13 +16,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LocationPinMap } from "@/components/customer/LocationPinMap";
+import { DeliveryFeePreview } from "@/components/customer/DeliveryFeePreview";
+import {
+  reverseGeocodeClient,
+  searchAddressClient,
+} from "@/lib/geocoding/client";
+import type { GeocodeSearchResult } from "@/lib/geocoding/types";
+import {
+  calculateDeliveryFee,
+  formatDistanceKm,
+  type LatLng,
+} from "@/lib/delivery/pricing";
 import {
   isWithinSamalIsland,
   SAMAL_MAP_CENTER,
   SAMAL_SERVICE_MESSAGE,
 } from "@/lib/delivery/samal";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
+import { formatCurrency } from "@/lib/utils/format";
 import type { Address } from "@/types";
-import type { LatLng } from "@/lib/delivery/pricing";
 
 const MAX_ADDRESSES = 3;
 
@@ -62,12 +74,20 @@ function toForm(addr: Address): FormState {
 }
 
 export function SavedAddressesCard() {
+  const { store, delivery } = useStoreSettings();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Address | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [geocoding, setGeocoding] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<GeocodeSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const reverseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipReverseRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -97,6 +117,97 @@ export function SavedAddressesCard() {
     void refresh();
   }, [refresh]);
 
+  const applyGeocodedAddress = useCallback(
+    (result: {
+      fullAddress: string;
+      barangay: string | null;
+      city: string | null;
+      latitude: number;
+      longitude: number;
+    }) => {
+      skipReverseRef.current = true;
+      setForm((f) => ({
+        ...f,
+        fullAddress: result.fullAddress || f.fullAddress,
+        barangay: result.barangay ?? f.barangay,
+        city: result.city ?? f.city ?? "Island Garden City of Samal",
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }));
+      window.setTimeout(() => {
+        skipReverseRef.current = false;
+      }, 0);
+    },
+    []
+  );
+
+  const reverseGeocodePin = useCallback(
+    async (coords: LatLng) => {
+      setGeocoding(true);
+      try {
+        const address = await reverseGeocodeClient(coords);
+        if (address) {
+          applyGeocodedAddress(address);
+        }
+      } finally {
+        setGeocoding(false);
+      }
+    },
+    [applyGeocodedAddress]
+  );
+
+  const handlePinChange = useCallback(
+    (next: LatLng) => {
+      setForm((f) => ({
+        ...f,
+        latitude: next.lat,
+        longitude: next.lng,
+      }));
+      if (skipReverseRef.current) return;
+      if (reverseTimerRef.current) clearTimeout(reverseTimerRef.current);
+      reverseTimerRef.current = setTimeout(() => {
+        void reverseGeocodePin(next);
+      }, 450);
+    },
+    [reverseGeocodePin]
+  );
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (value.trim().length < 3) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => {
+      void (async () => {
+        setSearchLoading(true);
+        try {
+          const results = await searchAddressClient(value, {
+            lat: form.latitude ?? SAMAL_MAP_CENTER.lat,
+            lng: form.longitude ?? SAMAL_MAP_CENTER.lng,
+          });
+          setSearchResults(results);
+        } finally {
+          setSearchLoading(false);
+        }
+      })();
+    }, 350);
+  };
+
+  const selectSearchResult = (result: GeocodeSearchResult) => {
+    applyGeocodedAddress(result);
+    setSearchQuery(result.fullAddress);
+    setSearchResults([]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (reverseTimerRef.current) clearTimeout(reverseTimerRef.current);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
+
   const openAdd = () => {
     if (addresses.length >= MAX_ADDRESSES) {
       toast.error(`You can save up to ${MAX_ADDRESSES} addresses.`);
@@ -108,14 +219,23 @@ export function SavedAddressesCard() {
       isDefault: addresses.length === 0,
       label: addresses.length === 0 ? "Home" : "Other",
     });
+    setSearchQuery("");
+    setSearchResults([]);
     setDialogOpen(true);
   };
 
   const openEdit = (addr: Address) => {
     setEditing(addr);
     setForm(toForm(addr));
+    setSearchQuery(addr.full_address);
+    setSearchResults([]);
     setDialogOpen(true);
   };
+
+  const pinCoords =
+    form.latitude != null && form.longitude != null
+      ? { lat: form.latitude, lng: form.longitude }
+      : null;
 
   const handleSave = async () => {
     const label = form.label.trim();
@@ -271,6 +391,17 @@ export function SavedAddressesCard() {
                     isWithinSamalIsland(addr.latitude, addr.longitude) ? (
                       <p className="mt-1 text-[11px] font-medium text-green">
                         Inside Samal Island
+                        {(() => {
+                          const quote = calculateDeliveryFee(
+                            { lat: addr.latitude!, lng: addr.longitude! },
+                            0,
+                            delivery,
+                            store
+                          );
+                          return quote.withinRadius
+                            ? ` · ${formatDistanceKm(quote.distanceKm)} · ${formatCurrency(quote.fee)} delivery`
+                            : "";
+                        })()}
                       </p>
                     ) : (
                       <p className="mt-1 text-[11px] font-medium text-destructive">
@@ -331,6 +462,43 @@ export function SavedAddressesCard() {
                 className="mt-1.5"
               />
             </div>
+            <div className="relative">
+              <Label htmlFor="addr-search">Search address</Label>
+              <div className="relative mt-1.5">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="addr-search"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Street, barangay, landmark on Samal…"
+                  className="pl-9"
+                />
+                {searchLoading && (
+                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              {searchResults.length > 0 && (
+                <ul className="absolute z-20 mt-1 max-h-44 w-full overflow-y-auto rounded-xl border border-border bg-white py-1 shadow-card">
+                  {searchResults.map((result) => (
+                    <li key={result.id}>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                        onClick={() => selectSearchResult(result)}
+                      >
+                        <span className="font-medium text-navy">
+                          {result.fullAddress}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Pick a result or use your location — the pin and address fill in
+                automatically.
+              </p>
+            </div>
             <div>
               <Label htmlFor="addr-full">Full address</Label>
               <Textarea
@@ -339,31 +507,33 @@ export function SavedAddressesCard() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, fullAddress: e.target.value }))
                 }
-                placeholder="Street, building, landmark…"
+                placeholder="Filled automatically from your pin or search"
                 className="mt-1.5 min-h-[80px] rounded-xl"
               />
+              {geocoding && (
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Looking up address for this pin…
+                </p>
+              )}
             </div>
             <div>
-              <Label>Pin on Samal Island</Label>
+              <Label>Delivery pin</Label>
               <div className="mt-1.5">
                 <LocationPinMap
+                  key={editing ? `edit-${editing.id}` : "add-address"}
                   value={
                     form.latitude != null && form.longitude != null
                       ? { lat: form.latitude, lng: form.longitude }
                       : SAMAL_MAP_CENTER
                   }
-                  onChange={(next: LatLng) =>
-                    setForm((f) => ({
-                      ...f,
-                      latitude: next.lat,
-                      longitude: next.lng,
-                      city: f.city || "Island Garden City of Samal",
-                    }))
-                  }
+                  onChange={handlePinChange}
+                  autoLocateOnMount={!editing}
                   heightClassName="h-52"
                 />
               </div>
             </div>
+            {pinCoords && <DeliveryFeePreview pin={pinCoords} />}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="addr-brgy">Barangay</Label>
