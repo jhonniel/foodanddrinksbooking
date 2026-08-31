@@ -186,6 +186,7 @@ function mapOrder(row: DbOrderRow): Order {
     payment_method: (row.payment_method as PaymentMethod | null) ?? null,
     cod_cash_amount:
       row.cod_cash_amount != null ? Number(row.cod_cash_amount) : null,
+    payment_proof_url: (row.payment_proof_url as string | null) ?? null,
     delivery_address_id: (row.delivery_address_id as string | null) ?? null,
     delivery_address_snapshot:
       (row.delivery_address_snapshot as AddressSnapshot | null) ?? null,
@@ -433,6 +434,7 @@ export async function createOrderInSupabase(input: {
   idempotencyKey?: string;
   scheduledAt?: string | null;
   codCashAmount?: number | null;
+  paymentProofUrl?: string | null;
 }): Promise<{ order?: Order; error?: string }> {
   if (!isSupabaseConfigured()) {
     return { error: "Supabase is not configured." };
@@ -520,6 +522,8 @@ export async function createOrderInSupabase(input: {
       payment_method: input.paymentMethod,
       cod_cash_amount:
         input.paymentMethod === "COD" ? (input.codCashAmount ?? null) : null,
+      payment_proof_url:
+        input.paymentMethod === "QRPH" ? (input.paymentProofUrl ?? null) : null,
       delivery_address_snapshot: input.address ?? null,
       delivery_instructions: input.deliveryInstructions ?? null,
       points_earned: pointsEarned,

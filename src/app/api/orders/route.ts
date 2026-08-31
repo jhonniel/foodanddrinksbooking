@@ -80,6 +80,7 @@ const orderApiSchema = z
     idempotencyKey: z.string().min(8).optional(),
     scheduledAt: z.string().datetime().optional().nullable(),
     codCashAmount: nonNeg.optional().nullable(),
+    paymentProofUrl: z.string().min(1).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (
@@ -112,6 +113,15 @@ const orderApiSchema = z
           code: "custom",
           message: `Cash amount must be at least ₱${orderTotal.toFixed(2)}.`,
           path: ["codCashAmount"],
+        });
+      }
+    }
+    if (data.paymentMethod === "QRPH") {
+      if (!data.paymentProofUrl?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Upload proof of payment before placing your order.",
+          path: ["paymentProofUrl"],
         });
       }
     }
@@ -342,6 +352,8 @@ export async function POST(request: NextRequest) {
     scheduledAt: scheduledAt?.toISOString() ?? null,
     codCashAmount:
       data.paymentMethod === "COD" ? (data.codCashAmount ?? null) : null,
+    paymentProofUrl:
+      data.paymentMethod === "QRPH" ? (data.paymentProofUrl ?? null) : null,
   });
 
   if (!created.order) {

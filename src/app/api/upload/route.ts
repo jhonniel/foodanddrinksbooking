@@ -86,9 +86,13 @@ export async function POST(request: Request) {
   ) {
     return jsonError("Forbidden.", 403);
   }
+  if (kind === "payment-proofs" && folderRaw !== profile.id) {
+    return jsonError("Forbidden.", 403);
+  }
 
   // Avatars always land under the signed-in user's folder
-  const folder = kind === "avatars" ? profile.id : folderRaw;
+  const folder =
+    kind === "avatars" || kind === "payment-proofs" ? profile.id : folderRaw;
 
   const key = buildImageObjectKey({
     kind,

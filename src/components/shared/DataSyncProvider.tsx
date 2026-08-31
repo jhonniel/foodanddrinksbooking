@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { clearLegacyDataStorage } from "@/lib/storage/clearLegacyStorage";
+import { isCatalogSyncPaused } from "@/lib/catalog/syncPause";
 import {
   DATA_SYNC_EVENT,
   syncAllDataFromServer,
@@ -23,7 +24,7 @@ export function DataSyncProvider() {
     let cancelled = false;
 
     const sync = async () => {
-      if (cancelled) return;
+      if (cancelled || isCatalogSyncPaused()) return;
       await syncAllDataFromServer();
     };
 

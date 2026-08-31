@@ -32,6 +32,26 @@ export async function syncCategory(category: Category): Promise<{
     return { ok: true };
   }
 
+  const sinkers = (category.sinkers ?? [])
+    .filter((a) => a.name.trim())
+    .map((a, index) => ({
+      id:
+        isUuid(a.id) && a.id
+          ? a.id
+          : typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : a.id,
+      product_id: null,
+      category_id: category.id,
+      name: a.name.trim(),
+      description: a.description ?? null,
+      price: Number(a.price),
+      is_available: a.is_available !== false,
+      is_global: false,
+      sort_order: a.sort_order ?? index,
+    }))
+    .filter((a) => isUuid(a.id) && Number.isFinite(a.price));
+
   const res = await fetch("/api/catalog/categories", {
     method: "PUT",
     credentials: "include",
@@ -41,6 +61,7 @@ export async function syncCategory(category: Category): Promise<{
         ...category,
         description: category.description ?? null,
         image_url: category.image_url ?? null,
+        sinkers,
       },
     }),
   });
@@ -59,10 +80,11 @@ export async function syncProduct(product: Product): Promise<{
   error?: string;
 }> {
   if (!isUuid(product.id) || !isUuid(product.category_id)) {
-    return { ok: true };
+    return { ok: false, error: "Product or category is not linked to Supabase." };
   }
 
-  const recipes = (product.recipes ?? [])
+  const allRecipes = product.recipes ?? [];
+  const recipes = allRecipes
     .filter((r) => isUuid(r.inventory_item_id))
     .map((r) => ({
       ...r,
@@ -75,6 +97,22 @@ export async function syncProduct(product: Product): Promise<{
       product_id: product.id,
     }))
     .filter((r) => isUuid(r.id));
+
+  if (allRecipes.length > 0 && recipes.length === 0) {
+    return {
+      ok: false,
+      error:
+        "Ingredients must be selected from your Supabase inventory list (demo inventory IDs cannot sync).",
+    };
+  }
+
+  if (recipes.length < allRecipes.length) {
+    return {
+      ok: false,
+      error:
+        "One or more ingredients are not linked to Supabase inventory. Re-select them from the inventory dropdown.",
+    };
+  }
 
   const addons = (product.addons ?? [])
     .filter((a) => a.name.trim())

@@ -18,6 +18,7 @@ import {
   removeCategoryRemote,
 } from "@/services/catalogService";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -32,6 +33,25 @@ import {
 } from "@/components/ui/dialog";
 import type { Category } from "@/types";
 
+type SinkerDraft = {
+  id: string;
+  name: string;
+  price: string;
+  isAvailable: boolean;
+};
+
+function emptySinker(): SinkerDraft {
+  return {
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `cat-sinker-${Date.now()}`,
+    name: "",
+    price: "",
+    isAvailable: true,
+  };
+}
+
 function slugify(name: string) {
   return name
     .trim()
@@ -41,7 +61,7 @@ function slugify(name: string) {
 }
 
 function isUuid(id: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     id
   );
 }
@@ -54,6 +74,7 @@ export default function AdminCategoriesPage() {
   const deleteCategory = useDataStore((s) => s.deleteCategory);
   const toggleCategoryActive = useDataStore((s) => s.toggleCategoryActive);
   const reorderCategories = useDataStore((s) => s.reorderCategories);
+  const setCategorySinkers = useDataStore((s) => s.setCategorySinkers);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
@@ -62,6 +83,7 @@ export default function AdminCategoriesPage() {
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sinkers, setSinkers] = useState<SinkerDraft[]>([]);
 
   const sorted = useMemo(
     () => [...categories].sort((a, b) => a.sort_order - b.sort_order),
@@ -74,6 +96,7 @@ export default function AdminCategoriesPage() {
     setDescription("");
     setImageUrl("");
     setImageFile(null);
+    setSinkers([]);
   };
 
   const handleOpenChange = (open: boolean) => {
@@ -92,7 +115,77 @@ export default function AdminCategoriesPage() {
     setDescription(category.description ?? "");
     setImageUrl(category.image_url ?? "");
     setImageFile(null);
+    setSinkers(
+      (category.sinkers ?? [])
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((a) => ({
+          id: a.id,
+          name: a.name,
+          price: String(a.price),
+          isAvailable: a.is_available,
+        }))
+    );
     setDialogOpen(true);
+  };
+
+  const updateSinker = (index: number, patch: Partial<SinkerDraft>) => {
+    setSinkers((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    );
+  };
+
+  const parseSinkers = () => {
+    for (const s of sinkers) {
+      const hasName = s.name.trim().length > 0;
+      const priceNum = parseFloat(s.price);
+      const hasPrice = s.price.trim() !== "" && !isNaN(priceNum) && priceNum >= 0;
+      if (hasName !== hasPrice) {
+        toast.error("Each sinker needs both a name and a price (₱0 or more).");
+        return null;
+      }
+    }
+
+    const parsed = sinkers
+      .map((s) => ({
+        id: s.id,
+        name: s.name.trim(),
+        price: parseFloat(s.price),
+        isAvailable: s.isAvailable,
+      }))
+      .filter((s) => s.name && !isNaN(s.price) && s.price >= 0);
+
+    const names = parsed.map((s) => s.name.toLowerCase());
+    if (new Set(names).size !== names.length) {
+      toast.error("Each sinker name must be unique in this category.");
+      return null;
+    }
+    return parsed;
+  };
+
+  const persistCategory = async (categoryId: string, label: string) => {
+    const latest = useDataStore
+      .getState()
+      .categories.find((c) => c.id === categoryId);
+    if (!latest || !isUuid(latest.id)) {
+      toast.success(`"${label}" saved locally.`);
+      return true;
+    }
+
+    const sync = await syncCategory(latest);
+    if (!sync.ok) {
+      toast.error(
+        sync.error ??
+          "Could not save category sinkers to the server. Run supabase/catch-up-007-011.sql section 017 if you have not yet."
+      );
+      return false;
+    }
+
+    const { requestServerDataSync } = await import(
+      "@/services/dataSyncService"
+    );
+    requestServerDataSync();
+    toast.success(`"${label}" saved.`);
+    return true;
   };
 
   const handleSave = async () => {
@@ -101,6 +194,9 @@ export default function AdminCategoriesPage() {
       toast.error("Category name is required.");
       return;
     }
+
+    const parsedSinkers = parseSinkers();
+    if (parsedSinkers === null) return;
 
     setSaving(true);
     try {
@@ -122,16 +218,10 @@ export default function AdminCategoriesPage() {
           description: description.trim() || null,
           ...(nextImageUrl ? { image_url: nextImageUrl } : {}),
         });
+        setCategorySinkers(editing.id, parsedSinkers);
 
-        const latest = useDataStore
-          .getState()
-          .categories.find((c) => c.id === editing.id);
-        if (latest && isUuid(latest.id)) {
-          const sync = await syncCategory(latest);
-          if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
-        }
-
-        toast.success(`"${trimmedName}" updated.`);
+        const ok = await persistCategory(editing.id, trimmedName);
+        if (!ok) return;
       } else {
         const created = addCategory({
           name: trimmedName,
@@ -139,24 +229,19 @@ export default function AdminCategoriesPage() {
           imageUrl: nextImageUrl,
         });
 
+        setCategorySinkers(created.id, parsedSinkers);
+
         if (imageFile) {
           const uploaded = await uploadCategoryImage(imageFile, created.id);
           if ("error" in uploaded) {
             toast.error(uploaded.error);
-          } else {
-            updateCategory(created.id, { image_url: uploaded.publicUrl });
+            return;
           }
+          updateCategory(created.id, { image_url: uploaded.publicUrl });
         }
 
-        const latest = useDataStore
-          .getState()
-          .categories.find((c) => c.id === created.id);
-        if (latest && isUuid(latest.id)) {
-          const sync = await syncCategory(latest);
-          if (!sync.ok) toast.error(sync.error ?? "Saved locally only.");
-        }
-
-        toast.success(`"${trimmedName}" category added.`);
+        const ok = await persistCategory(created.id, trimmedName);
+        if (!ok) return;
       }
 
       setDialogOpen(false);
@@ -269,6 +354,95 @@ export default function AdminCategoriesPage() {
                   rows={2}
                 />
               </div>
+
+              <div className="space-y-3 rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-navy">
+                      Category sinkers
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Default toppings for every drink in this category
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setSinkers((rows) => [...rows, emptySinker()])}
+                  >
+                    <Plus className="mr-1 h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                </div>
+
+                {sinkers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No category sinkers yet. Drinks can still have their own
+                    per-drink sinkers.
+                  </p>
+                ) : (
+                  sinkers.map((row, index) => (
+                    <div
+                      key={row.id}
+                      className="space-y-2 rounded-lg bg-muted/40 p-2"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Input
+                          placeholder="Sinker name (e.g. Classic Pearls)"
+                          value={row.name}
+                          onChange={(e) =>
+                            updateSinker(index, { name: e.target.value })
+                          }
+                          className="sm:flex-1"
+                        />
+                        <div className="flex gap-2 sm:shrink-0">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Price ₱"
+                            className="w-full sm:w-28"
+                            value={row.price}
+                            onChange={(e) =>
+                              updateSinker(index, { price: e.target.value })
+                            }
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 text-destructive"
+                            onClick={() =>
+                              setSinkers((rows) =>
+                                rows.filter((_, i) => i !== index)
+                              )
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={`cat-sinker-${row.id}`}
+                          checked={row.isAvailable}
+                          onCheckedChange={(v) =>
+                            updateSinker(index, { isAvailable: v === true })
+                          }
+                        />
+                        <Label
+                          htmlFor={`cat-sinker-${row.id}`}
+                          className="cursor-pointer text-xs text-muted-foreground"
+                        >
+                          Available to customers
+                        </Label>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label>Category image</Label>
                 {previewUrl && (
@@ -342,6 +516,11 @@ export default function AdminCategoriesPage() {
               </p>
               <p className="text-xs text-muted-foreground">
                 Order: {category.sort_order}
+                {(category.sinkers?.length ?? 0) > 0
+                  ? ` · ${category.sinkers!.length} category sinker${
+                      category.sinkers!.length === 1 ? "" : "s"
+                    }`
+                  : ""}
               </p>
             </div>
             <ReorderButtons

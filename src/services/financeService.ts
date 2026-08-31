@@ -1,4 +1,5 @@
 import type { Expense, Order, OrderStatus } from "@/types";
+import { estimateRecipeCostForOneUnit } from "@/lib/inventory/cost";
 import { useDataStore } from "@/stores/data";
 
 export const EXPENSE_CATEGORY_LABELS: Record<Expense["category"], string> = {
@@ -36,11 +37,11 @@ export function estimateOrderCogs(order: Order): number {
   let total = 0;
   for (const item of order.items ?? []) {
     const product = products.find((p) => p.id === item.product_id);
-    for (const recipe of product?.recipes ?? []) {
-      const inv = inventory.find((i) => i.id === recipe.inventory_item_id);
-      const unitCost = inv?.cost_per_unit ?? 0;
-      total += recipe.quantity_required * item.quantity * unitCost;
-    }
+    const unitCost = estimateRecipeCostForOneUnit(
+      product?.recipes ?? [],
+      inventory
+    );
+    total += unitCost * item.quantity;
   }
   return Math.round(total * 100) / 100;
 }

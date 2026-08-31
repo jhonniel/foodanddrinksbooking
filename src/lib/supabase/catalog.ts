@@ -5,6 +5,7 @@ import type { Category, Product, ProductAddon, ProductRecipe } from "@/types";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
 import {
+  groupAddonsByCategory,
   groupAddonsByProduct,
   groupRecipes,
   mapCategory,
@@ -39,7 +40,13 @@ async function syncProductRecipesInSupabase(
     };
   }
 
-  const keepInventoryIds = new Set(valid.map((r) => r.inventory_item_id));
+  const rows = valid.map((recipe) => ({
+    id: isUuid(recipe.id) ? recipe.id : randomUUID(),
+    product_id: productId,
+    inventory_item_id: recipe.inventory_item_id,
+    quantity_required: recipe.quantity_required,
+  }));
+  const keepIds = new Set(rows.map((r) => r.id));
 
   const { data: existing, error: listError } = await client
     .from("product_recipes")
@@ -49,7 +56,7 @@ async function syncProductRecipesInSupabase(
   if (listError) return { error: listError.message };
 
   const toDelete = (existing ?? []).filter(
-    (row) => !keepInventoryIds.has(String(row.inventory_item_id))
+    (row) => !keepIds.has(String(row.id))
   );
 
   if (toDelete.length > 0) {
@@ -63,14 +70,7 @@ async function syncProductRecipesInSupabase(
     if (error) return { error: error.message };
   }
 
-  for (const recipe of valid) {
-    const row = {
-      id: isUuid(recipe.id) ? recipe.id : randomUUID(),
-      product_id: productId,
-      inventory_item_id: recipe.inventory_item_id,
-      quantity_required: recipe.quantity_required,
-    };
-
+  for (const row of rows) {
     const { error } = await client.from("product_recipes").upsert(row, {
       onConflict: "id",
     });
@@ -100,6 +100,7 @@ async function syncProductAddonsInSupabase(
     .from("product_addons")
     .select("id")
     .eq("product_id", productId)
+    .is("category_id", null)
     .eq("is_global", false);
 
   if (listError) return { error: listError.message };
@@ -124,6 +125,7 @@ async function syncProductAddonsInSupabase(
     const row = {
       id: isUuid(addon.id) ? addon.id : randomUUID(),
       product_id: productId,
+      category_id: null,
       name: addon.name.trim(),
       description: addon.description?.trim() || null,
       price: addon.price,
@@ -138,6 +140,77 @@ async function syncProductAddonsInSupabase(
 
     if (error) {
       return { error: error.message };
+    }
+  }
+
+  return {};
+}
+
+/** Replace category default sinkers (product_addons linked to category_id). */
+async function syncCategoryAddonsInSupabase(
+  client: NonNullable<Awaited<ReturnType<typeof createServerClient>>>,
+  categoryId: string,
+  sinkers: ProductAddon[] | undefined
+): Promise<{ error?: string }> {
+  if (sinkers === undefined) return {};
+
+  const rows = (sinkers ?? []).filter((a) => !a.is_global);
+  const keepIds = new Set(rows.map((a) => a.id).filter((id) => isUuid(id)));
+
+  const { data: existing, error: listError } = await client
+    .from("product_addons")
+    .select("id")
+    .eq("category_id", categoryId)
+    .is("product_id", null)
+    .eq("is_global", false);
+
+  if (listError) return { error: listError.message };
+
+  const toDelete = (existing ?? []).filter(
+    (row) => !keepIds.has(String(row.id))
+  );
+
+  if (toDelete.length > 0) {
+    const { error } = await client
+      .from("product_addons")
+      .delete()
+      .in(
+        "id",
+        toDelete.map((r) => String(r.id))
+      );
+    if (error) return { error: error.message };
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const addon = rows[i];
+    const row = {
+      id: isUuid(addon.id) ? addon.id : randomUUID(),
+      product_id: null,
+      category_id: categoryId,
+      name: addon.name.trim(),
+      description: addon.description?.trim() || null,
+      price: addon.price,
+      is_available: addon.is_available,
+      is_global: false,
+      sort_order: addon.sort_order ?? i,
+    };
+
+    const { error } = await client.from("product_addons").upsert(row, {
+      onConflict: "id",
+    });
+
+    if (error) {
+      const msg = error.message;
+      if (
+        msg.includes("category_id") &&
+        (msg.includes("column") || msg.includes("schema cache"))
+      ) {
+        return {
+          error:
+            "Database missing category_id on product_addons. Run supabase/catch-up-007-011.sql section 017 in the Supabase SQL Editor.",
+        };
+      }
+      return { error: msg };
     }
   }
 
@@ -172,7 +245,12 @@ export async function fetchCatalogFromSupabase() {
   const addonsByProduct = groupAddonsByProduct(
     (addonsRes.data ?? []) as DbAddon[]
   );
-  const categories = ((catsRes.data ?? []) as DbCategory[]).map(mapCategory);
+  const addonsByCategory = groupAddonsByCategory(
+    (addonsRes.data ?? []) as DbAddon[]
+  );
+  const categories = ((catsRes.data ?? []) as DbCategory[]).map((c) =>
+    mapCategory(c, addonsByCategory.get(c.id) ?? [])
+  );
   const products = ((prodsRes.data ?? []) as DbProduct[]).map((p) =>
     mapProduct(
       p,
@@ -204,6 +282,14 @@ export async function upsertCategoryInSupabase(
   });
 
   if (error) return { error: error.message };
+
+  const addonResult = await syncCategoryAddonsInSupabase(
+    client,
+    category.id,
+    category.sinkers
+  );
+  if (addonResult.error) return { error: addonResult.error };
+
   return { ok: true };
 }
 

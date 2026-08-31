@@ -94,3 +94,15 @@ WHERE key = 'delivery';
 UPDATE loyalty_settings
 SET points_per_peso = 0.025
 WHERE points_per_peso = 1.0 OR points_per_peso IS NULL;
+
+-- 017: category-level sinkers on product_addons
+ALTER TABLE product_addons
+  ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES categories(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_product_addons_category
+  ON product_addons (category_id, sort_order)
+  WHERE category_id IS NOT NULL;
+
+-- 018: QR Ph payment proof screenshot on orders
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS payment_proof_url TEXT NULL;

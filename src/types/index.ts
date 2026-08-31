@@ -112,6 +112,8 @@ export interface Category {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  /** Default sinkers for all drinks in this category */
+  sinkers?: ProductAddon[];
 }
 
 export interface Product {
@@ -174,6 +176,7 @@ export interface ProductOptionValue {
 export interface ProductAddon {
   id: string;
   product_id: string | null;
+  category_id?: string | null;
   name: string;
   description: string | null;
   price: number;
@@ -233,6 +236,8 @@ export interface Order {
   payment_method: PaymentMethod | null;
   /** Cash tendered for COD orders (customer pays with this amount). */
   cod_cash_amount: number | null;
+  /** Screenshot / receipt uploaded for QR Ph orders. */
+  payment_proof_url: string | null;
   delivery_address_id: string | null;
   delivery_address_snapshot: AddressSnapshot | null;
   delivery_instructions: string | null;

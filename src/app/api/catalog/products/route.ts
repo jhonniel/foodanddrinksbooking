@@ -75,7 +75,12 @@ export async function PUT(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = productSchema.safeParse(json);
   if (!parsed.success) {
-    return jsonError("Invalid product payload.");
+    const issue = parsed.error.issues[0];
+    return jsonError(
+      issue?.message
+        ? `Invalid product: ${issue.message}`
+        : "Invalid product payload."
+    );
   }
 
   const result = await upsertProductInSupabase({

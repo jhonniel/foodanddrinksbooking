@@ -46,3 +46,50 @@ export function totalInventoryStockValue(
 ): number {
   return items.reduce((sum, item) => sum + inventoryStockValue(item), 0);
 }
+
+export type RecipeCostLine = {
+  inventoryItemId: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  lineCost: number;
+};
+
+/** Ingredient cost to make one unit of a product (recipes × inventory cost_per_unit). */
+export function breakdownRecipeCostForOneUnit(
+  recipes: Array<{ inventory_item_id: string; quantity_required: number }>,
+  inventory: Pick<
+    InventoryItem,
+    "id" | "name" | "unit" | "cost_per_unit"
+  >[]
+): { total: number; lines: RecipeCostLine[] } {
+  const lines: RecipeCostLine[] = [];
+
+  for (const recipe of recipes) {
+    const inv = inventory.find((i) => i.id === recipe.inventory_item_id);
+    if (!inv) continue;
+    const qty = Number(recipe.quantity_required);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const unitCost = Number(inv.cost_per_unit ?? 0);
+    const lineCost = Math.round(qty * unitCost * 100) / 100;
+    lines.push({
+      inventoryItemId: inv.id,
+      name: inv.name,
+      quantity: qty,
+      unit: inv.unit,
+      unitCost,
+      lineCost,
+    });
+  }
+
+  const total = Math.round(lines.reduce((s, l) => s + l.lineCost, 0) * 100) / 100;
+  return { total, lines };
+}
+
+export function estimateRecipeCostForOneUnit(
+  recipes: Array<{ inventory_item_id: string; quantity_required: number }>,
+  inventory: Pick<InventoryItem, "id" | "cost_per_unit">[]
+): number {
+  return breakdownRecipeCostForOneUnit(recipes, inventory).total;
+}

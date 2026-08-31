@@ -4,7 +4,7 @@ import { getProductStockStatus } from "@/lib/inventory/availability";
 import { syncProduct } from "@/services/catalogService";
 
 function isUuid(id: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     id
   );
 }
@@ -25,11 +25,22 @@ export async function getLowStockItems(): Promise<InventoryItem[]> {
  * - any recipe ingredient cannot make 1 unit.
  * Syncs UUID products to Supabase. Returns products flipped off.
  */
-export async function applyInventoryAvailabilityRules(): Promise<Product[]> {
+export async function applyInventoryAvailabilityRules(options?: {
+  /** When set, only evaluate these products (avoids flipping unrelated menu items). */
+  onlyProductIds?: Iterable<string>;
+  /** Push availability changes to Supabase (default true). */
+  syncToServer?: boolean;
+}): Promise<Product[]> {
   const store = useDataStore.getState();
   const flipped: Product[] = [];
+  const onlyIds = options?.onlyProductIds
+    ? new Set(options.onlyProductIds)
+    : null;
+  const syncToServer = options?.syncToServer ?? true;
 
   for (const product of store.products) {
+    if (onlyIds && !onlyIds.has(product.id)) continue;
+
     const status = getProductStockStatus(product, store.inventory);
     const shouldBeUnavailable =
       status.level === "no_recipe" || (status.makeable ?? 0) <= 0;
@@ -42,10 +53,15 @@ export async function applyInventoryAvailabilityRules(): Promise<Product[]> {
       .products.find((p) => p.id === product.id);
     if (updated) {
       flipped.push(updated);
-      if (isUuid(updated.id)) {
-        void syncProduct(updated);
-      }
     }
+  }
+
+  if (syncToServer && flipped.length > 0) {
+    await Promise.all(
+      flipped
+        .filter((p) => isUuid(p.id))
+        .map((p) => syncProduct(p))
+    );
   }
 
   return flipped;

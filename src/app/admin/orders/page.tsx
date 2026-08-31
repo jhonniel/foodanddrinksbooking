@@ -525,6 +525,20 @@ export default function AdminOrdersPage() {
                         )}
                       </div>
                     )}
+                  {selected.payment_method === "QRPH" &&
+                    selected.payment_proof_url && (
+                      <div className="mt-2 rounded-xl bg-sky/10 px-3 py-2.5 text-sm">
+                        <p className="font-medium text-navy">QR Ph payment proof</p>
+                        <a
+                          href={selected.payment_proof_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-block text-xs font-medium text-sky underline"
+                        >
+                          View uploaded screenshot
+                        </a>
+                      </div>
+                    )}
                   <div className="mt-2.5 flex justify-between rounded-xl bg-sky/10 px-3 py-2.5 text-sm">
                     <span className="text-muted-foreground">
                       Points to earn

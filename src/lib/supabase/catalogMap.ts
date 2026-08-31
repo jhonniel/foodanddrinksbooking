@@ -63,6 +63,7 @@ type DbRecipe = {
 type DbAddon = {
   id: string;
   product_id: string | null;
+  category_id?: string | null;
   name: string;
   description: string | null;
   price: number | string;
@@ -71,7 +72,10 @@ type DbAddon = {
   sort_order: number;
 };
 
-export function mapCategory(row: DbCategory): Category {
+export function mapCategory(
+  row: DbCategory,
+  sinkers: ProductAddon[] = []
+): Category {
   return {
     id: row.id,
     name: row.name,
@@ -82,6 +86,7 @@ export function mapCategory(row: DbCategory): Category {
     is_active: row.is_active,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    sinkers,
   };
 }
 
@@ -136,12 +141,20 @@ export function groupRecipes(
   const recipesByProduct = new Map<string, ProductRecipe[]>();
   for (const row of rows) {
     const list = recipesByProduct.get(row.product_id) ?? [];
-    list.push({
+    const recipe: ProductRecipe = {
       id: row.id,
       product_id: row.product_id,
       inventory_item_id: row.inventory_item_id,
       quantity_required: Number(row.quantity_required),
-    });
+    };
+    const dupeIndex = list.findIndex(
+      (r) => r.inventory_item_id === recipe.inventory_item_id
+    );
+    if (dupeIndex >= 0) {
+      list[dupeIndex] = recipe;
+    } else {
+      list.push(recipe);
+    }
     recipesByProduct.set(row.product_id, list);
   }
   return recipesByProduct;
@@ -151,6 +164,7 @@ export function mapAddon(row: DbAddon): ProductAddon {
   return {
     id: row.id,
     product_id: row.product_id,
+    category_id: row.category_id ?? null,
     name: row.name,
     description: row.description,
     price: Number(row.price),
@@ -160,13 +174,13 @@ export function mapAddon(row: DbAddon): ProductAddon {
   };
 }
 
-/** Per-product sinkers only (excludes global addon pool). */
+/** Per-drink sinkers (product_addons linked to a product). */
 export function groupAddonsByProduct(
   rows: DbAddon[]
 ): Map<string, ProductAddon[]> {
   const byProduct = new Map<string, ProductAddon[]>();
   for (const row of rows) {
-    if (!row.product_id || row.is_global) continue;
+    if (!row.product_id || row.is_global || row.category_id) continue;
     const list = byProduct.get(row.product_id) ?? [];
     list.push(mapAddon(row));
     byProduct.set(row.product_id, list);
@@ -176,6 +190,24 @@ export function groupAddonsByProduct(
     byProduct.set(productId, list);
   }
   return byProduct;
+}
+
+/** Category default sinkers (apply to all drinks in the category). */
+export function groupAddonsByCategory(
+  rows: DbAddon[]
+): Map<string, ProductAddon[]> {
+  const byCategory = new Map<string, ProductAddon[]>();
+  for (const row of rows) {
+    if (!row.category_id || row.is_global || row.product_id) continue;
+    const list = byCategory.get(row.category_id) ?? [];
+    list.push(mapAddon(row));
+    byCategory.set(row.category_id, list);
+  }
+  for (const [categoryId, list] of byCategory) {
+    list.sort((a, b) => a.sort_order - b.sort_order);
+    byCategory.set(categoryId, list);
+  }
+  return byCategory;
 }
 
 export type { DbCategory, DbProduct, DbInventory, DbRecipe, DbAddon };

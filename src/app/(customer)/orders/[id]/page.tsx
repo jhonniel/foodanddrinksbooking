@@ -209,7 +209,25 @@ export default function OrderDetailPage() {
 
       <OrderTrackingStepper order={order} />
 
+      {order.payment_method === "QRPH" && order.payment_proof_url && (
+        <div className="rounded-2xl border border-green/30 bg-green/5 p-4 text-sm">
+          <p className="font-semibold text-navy">Payment proof submitted</p>
+          <p className="mt-1 text-muted-foreground">
+            We&apos;re verifying your QR Ph payment of {formatCurrency(order.total)}.
+          </p>
+          <a
+            href={order.payment_proof_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-block text-sm font-medium text-sky underline"
+          >
+            View your screenshot
+          </a>
+        </div>
+      )}
+
       {order.payment_method === "QRPH" &&
+        !order.payment_proof_url &&
         order.payment_status !== "PAID" &&
         order.status !== "CANCELLED" && (
           <QRPhPaymentPanel amount={order.total} />

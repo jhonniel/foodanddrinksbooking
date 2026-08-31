@@ -5,17 +5,18 @@ import Image from "next/image";
 import { AlertTriangle, Plus, Search, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useDataStore } from "@/stores/data";
+import { pauseCatalogSync } from "@/lib/catalog/syncPause";
+import { breakdownRecipeCostForOneUnit } from "@/lib/inventory/cost";
 import {
   removeProductRemote,
   syncProduct,
   uploadProductImage,
 } from "@/services/catalogService";
-import { applyInventoryAvailabilityRules } from "@/services/inventoryService";
 import {
   getProductStockStatus,
   type ProductStockStatus,
 } from "@/lib/inventory/availability";
-import { formatCurrency } from "@/lib/utils/format";
+import { formatCurrency, slugify } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,8 +42,10 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import type { Product } from "@/types";
+import { mergeSinkersForProduct } from "@/lib/catalog/sinkers";
 
 type RecipeDraft = {
+  rowId: string;
   inventoryItemId: string;
   quantityRequired: string;
 };
@@ -55,7 +58,14 @@ type SinkerDraft = {
 };
 
 function emptyRecipe(): RecipeDraft {
-  return { inventoryItemId: "", quantityRequired: "" };
+  return {
+    inventoryItemId: "",
+    quantityRequired: "",
+    rowId:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `recipe-row-${Date.now()}`,
+  };
 }
 
 function emptySinker(): SinkerDraft {
@@ -70,8 +80,20 @@ function emptySinker(): SinkerDraft {
   };
 }
 
+function dedupeRecipeDrafts(rows: RecipeDraft[]): RecipeDraft[] {
+  const byInventory = new Map<string, RecipeDraft>();
+  for (const row of rows) {
+    if (!row.inventoryItemId) {
+      byInventory.set(`__empty-${row.rowId}`, row);
+      continue;
+    }
+    byInventory.set(row.inventoryItemId, row);
+  }
+  return Array.from(byInventory.values());
+}
+
 function isUuid(id: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     id
   );
 }
@@ -109,14 +131,31 @@ export default function AdminProductsPage() {
     [categories]
   );
 
+  const categoryNameById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c.name])),
+    [categories]
+  );
+
   const filtered = useMemo(
     () =>
-      products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(search.toLowerCase()) ||
-          (p.sku ?? "").toLowerCase().includes(search.toLowerCase())
-      ),
-    [products, search]
+      products
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(search.toLowerCase()) ||
+            (p.sku ?? "").toLowerCase().includes(search.toLowerCase())
+        )
+        .sort((a, b) => {
+          const catA = categoryNameById.get(a.category_id) ?? "Unknown";
+          const catB = categoryNameById.get(b.category_id) ?? "Unknown";
+          const byCategory = catA.localeCompare(catB, undefined, {
+            sensitivity: "base",
+          });
+          if (byCategory !== 0) return byCategory;
+          return a.name.localeCompare(b.name, undefined, {
+            sensitivity: "base",
+          });
+        }),
+    [products, search, categoryNameById]
   );
 
   const stockByProductId = useMemo(() => {
@@ -127,9 +166,48 @@ export default function AdminProductsPage() {
     return map;
   }, [products, inventory]);
 
+  const categorySinkersPreview = useMemo(() => {
+    if (!categoryId) return [];
+    return (
+      categories.find((c) => c.id === categoryId)?.sinkers?.filter(
+        (s) => s.is_available
+      ) ?? []
+    );
+  }, [categories, categoryId]);
+
+  const draftRecipeCost = useMemo(() => {
+    const parsed = recipes
+      .map((r) => ({
+        inventory_item_id: r.inventoryItemId,
+        quantity_required: parseFloat(r.quantityRequired),
+      }))
+      .filter(
+        (r) =>
+          r.inventory_item_id &&
+          Number.isFinite(r.quantity_required) &&
+          r.quantity_required > 0
+      );
+    return breakdownRecipeCostForOneUnit(parsed, inventory);
+  }, [recipes, inventory]);
+
+  const parsedPriceForMargin = parseFloat(price);
+  const hasValidPrice =
+    price.trim() !== "" &&
+    Number.isFinite(parsedPriceForMargin) &&
+    parsedPriceForMargin > 0;
+  const draftMargin =
+    hasValidPrice && draftRecipeCost.total > 0
+      ? parsedPriceForMargin - draftRecipeCost.total
+      : null;
+  const draftMarginPct =
+    draftMargin != null && parsedPriceForMargin > 0
+      ? (draftMargin / parsedPriceForMargin) * 100
+      : null;
+
   useEffect(() => {
-    void applyInventoryAvailabilityRules();
-  }, [inventory, products.length]);
+    if (!dialogOpen) return;
+    return pauseCatalogSync();
+  }, [dialogOpen]);
 
   const getCategoryName = (id: string) =>
     categories.find((c) => c.id === id)?.name ?? "Unknown";
@@ -174,10 +252,13 @@ export default function AdminProductsPage() {
     setIsBestSeller(product.is_best_seller);
     setRecipes(
       product.recipes && product.recipes.length > 0
-        ? product.recipes.map((r) => ({
-            inventoryItemId: r.inventory_item_id,
-            quantityRequired: String(r.quantity_required),
-          }))
+        ? dedupeRecipeDrafts(
+            product.recipes.map((r) => ({
+              rowId: r.id,
+              inventoryItemId: r.inventory_item_id,
+              quantityRequired: String(r.quantity_required),
+            }))
+          )
         : [emptyRecipe()]
     );
     setSinkers(
@@ -245,6 +326,62 @@ export default function AdminProductsPage() {
     return parsed;
   };
 
+  const applyLocalAvailability = (productId: string) => {
+    const { products: allProducts, inventory: inv } = useDataStore.getState();
+    const product = allProducts.find((p) => p.id === productId);
+    if (!product?.is_available) return;
+
+    const status = getProductStockStatus(product, inv);
+    const shouldBeUnavailable =
+      status.level === "no_recipe" || (status.makeable ?? 0) <= 0;
+    if (shouldBeUnavailable) {
+      updateProduct(productId, { is_available: false });
+    }
+  };
+
+  const persistProductToServer = async (
+    productId: string,
+    successMessage: string
+  ): Promise<boolean> => {
+    applyLocalAvailability(productId);
+
+    const latest = useDataStore
+      .getState()
+      .products.find((p) => p.id === productId);
+    if (!latest) {
+      toast.error("Product not found after save.");
+      return false;
+    }
+
+    if (!isUuid(latest.id)) {
+      toast.success(`${successMessage} (saved locally only)`);
+      return true;
+    }
+
+    if (!isUuid(latest.category_id)) {
+      toast.error(
+        "Could not save to the server — select a category synced to Supabase."
+      );
+      return false;
+    }
+
+    const sync = await syncProduct(latest);
+    if (!sync.ok) {
+      toast.error(
+        sync.error ??
+          "Could not save product to the server. Check ingredients and try again."
+      );
+      return false;
+    }
+
+    const { requestServerDataSync } = await import(
+      "@/services/dataSyncService"
+    );
+    requestServerDataSync();
+    toast.success(successMessage);
+    return true;
+  };
+
   const handleSave = async () => {
     const trimmedName = name.trim();
     const parsedPrice = parseFloat(price);
@@ -285,6 +422,7 @@ export default function AdminProductsPage() {
 
         updateProduct(editProduct.id, {
           name: trimmedName,
+          slug: slugify(trimmedName),
           description: description.trim() || null,
           base_price: parsedPrice,
           category_id: categoryId,
@@ -295,26 +433,12 @@ export default function AdminProductsPage() {
         setProductRecipes(editProduct.id, parsedRecipes);
         setProductAddons(editProduct.id, parsedSinkers);
 
-        const latest = useDataStore
-          .getState()
-          .products.find((p) => p.id === editProduct.id);
-        if (latest && isUuid(latest.id) && isUuid(latest.category_id)) {
-          const sync = await syncProduct(latest);
-          if (!sync.ok) {
-            toast.error(
-              sync.error ??
-                "Could not save product to the server. Recipes were not updated — try again."
-            );
-            return;
-          }
-          const { requestServerDataSync } = await import(
-            "@/services/dataSyncService"
-          );
-          requestServerDataSync();
-        }
+        const ok = await persistProductToServer(
+          editProduct.id,
+          `"${trimmedName}" updated.`
+        );
+        if (!ok) return;
 
-        toast.success(`"${trimmedName}" updated.`);
-        await applyInventoryAvailabilityRules();
         setDialogOpen(false);
         resetForm();
         return;
@@ -339,31 +463,17 @@ export default function AdminProductsPage() {
         const uploaded = await uploadProductImage(imageFile, created.id);
         if ("error" in uploaded) {
           toast.error(uploaded.error);
-        } else {
-          updateProduct(created.id, { image_url: uploaded.publicUrl });
-        }
-      }
-
-      const latest = useDataStore
-        .getState()
-        .products.find((p) => p.id === created.id);
-      if (latest && isUuid(latest.id) && isUuid(latest.category_id)) {
-        const sync = await syncProduct(latest);
-        if (!sync.ok) {
-          toast.error(
-            sync.error ??
-              "Could not save product to the server. Try again."
-          );
           return;
         }
-        const { requestServerDataSync } = await import(
-          "@/services/dataSyncService"
-        );
-        requestServerDataSync();
+        updateProduct(created.id, { image_url: uploaded.publicUrl });
       }
 
-      toast.success(`"${trimmedName}" added with ingredients.`);
-      await applyInventoryAvailabilityRules();
+      const ok = await persistProductToServer(
+        created.id,
+        `"${trimmedName}" added with ingredients.`
+      );
+      if (!ok) return;
+
       setDialogOpen(false);
       resetForm();
     } finally {
@@ -490,6 +600,64 @@ export default function AdminProductsPage() {
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="85"
                 />
+                <div className="mt-2 rounded-xl bg-muted/40 px-3 py-2.5 text-sm">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-muted-foreground">
+                      Estimated cost (ingredients)
+                    </span>
+                    <span className="font-semibold text-navy">
+                      {draftRecipeCost.lines.length > 0
+                        ? formatCurrency(draftRecipeCost.total)
+                        : "—"}
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        / drink
+                      </span>
+                    </span>
+                  </div>
+                  {draftMargin != null && draftRecipeCost.total > 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Margin:{" "}
+                      <span
+                        className={
+                          draftMargin >= 0
+                            ? "font-medium text-green"
+                            : "font-medium text-red-600"
+                        }
+                      >
+                        {formatCurrency(draftMargin)}
+                      </span>
+                      {draftMarginPct != null ? (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          ({draftMarginPct.toFixed(0)}% of price)
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : draftRecipeCost.lines.length === 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Add ingredients below to calculate cost from inventory
+                      prices.
+                    </p>
+                  ) : null}
+                  {draftRecipeCost.lines.length > 0 ? (
+                    <ul className="mt-2 space-y-0.5 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                      {draftRecipeCost.lines.map((line) => (
+                        <li
+                          key={line.inventoryItemId}
+                          className="flex justify-between gap-2"
+                        >
+                          <span>
+                            {line.name} · {line.quantity} {line.unit} ×{" "}
+                            {formatCurrency(line.unitCost)}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-navy">
+                            {formatCurrency(line.lineCost)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               </div>
               <div>
                 <Label>Category *</Label>
@@ -590,7 +758,7 @@ export default function AdminProductsPage() {
 
                 {recipes.map((row, index) => (
                   <div
-                    key={index}
+                    key={row.rowId}
                     className="space-y-2 rounded-lg bg-muted/40 p-2"
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -661,8 +829,8 @@ export default function AdminProductsPage() {
                   <div>
                     <p className="text-sm font-semibold text-navy">Sinkers</p>
                     <p className="text-xs text-muted-foreground">
-                      Optional add-ons customers can pick for this drink (e.g.
-                      pearls, jelly)
+                      Optional add-ons for this drink only. Drinks also inherit
+                      sinkers from their category (set under Admin → Categories).
                     </p>
                   </div>
                   <Button
@@ -678,7 +846,8 @@ export default function AdminProductsPage() {
 
                 {sinkers.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    No sinkers yet. Add pearls, jelly, or other toppings.
+                    No drink-specific sinkers yet. Add pearls, jelly, or other
+                    toppings.
                   </p>
                 ) : (
                   sinkers.map((row, index) => (
@@ -740,6 +909,22 @@ export default function AdminProductsPage() {
                     </div>
                   ))
                 )}
+
+                {categorySinkersPreview.length > 0 ? (
+                  <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2.5">
+                    <p className="text-xs font-medium text-navy">
+                      From category ({getCategoryName(categoryId)})
+                    </p>
+                    <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+                      {categorySinkersPreview.map((s) => (
+                        <li key={s.id} className="flex justify-between gap-2">
+                          <span>{s.name}</span>
+                          <span>{formatCurrency(s.price)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             </div>
             </DialogScrollBody>
@@ -783,6 +968,14 @@ export default function AdminProductsPage() {
             const isNoRecipe = stock.level === "no_recipe";
             const isOut = stock.level === "out" || isNoRecipe;
             const isLow = stock.level === "low";
+            const productCost = breakdownRecipeCostForOneUnit(
+              product.recipes ?? [],
+              inventory
+            );
+            const productMargin =
+              productCost.total > 0
+                ? product.base_price - productCost.total
+                : null;
 
             return (
               <div
@@ -827,9 +1020,28 @@ export default function AdminProductsPage() {
                         {getCategoryName(product.category_id)}
                       </p>
                     </div>
-                    <p className="font-semibold text-green">
-                      {formatCurrency(product.base_price)}
-                    </p>
+                    <div className="text-right">
+                      <p className="font-semibold text-green">
+                        {formatCurrency(product.base_price)}
+                      </p>
+                      {productCost.total > 0 ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Cost {formatCurrency(productCost.total)}
+                          {productMargin != null ? (
+                            <span
+                              className={
+                                productMargin >= 0
+                                  ? " text-green"
+                                  : " text-red-600"
+                              }
+                            >
+                              {" "}
+                              · margin {formatCurrency(productMargin)}
+                            </span>
+                          ) : null}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="rounded-lg bg-muted/50 px-2.5 py-2">
@@ -858,17 +1070,27 @@ export default function AdminProductsPage() {
                       <Badge variant="secondary">Best seller</Badge>
                     )}
                     {(product.addons ?? []).filter((a) => !a.is_global).length >
-                      0 && (
+                      0 ||
+                    (
+                      categories.find((c) => c.id === product.category_id)
+                        ?.sinkers ?? []
+                    ).length > 0 ? (
                       <Badge variant="outline">
-                        {(product.addons ?? []).filter((a) => !a.is_global)
-                          .length}{" "}
+                        {mergeSinkersForProduct(
+                          categories.find((c) => c.id === product.category_id)
+                            ?.sinkers ?? [],
+                          (product.addons ?? []).filter((a) => !a.is_global)
+                        ).length}{" "}
                         sinker
-                        {(product.addons ?? []).filter((a) => !a.is_global)
-                          .length === 1
+                        {mergeSinkersForProduct(
+                          categories.find((c) => c.id === product.category_id)
+                            ?.sinkers ?? [],
+                          (product.addons ?? []).filter((a) => !a.is_global)
+                        ).length === 1
                           ? ""
                           : "s"}
                       </Badge>
-                    )}
+                    ) : null}
                     {!product.is_available && (
                       <Badge variant="destructive">Unavailable</Badge>
                     )}

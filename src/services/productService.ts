@@ -1,3 +1,4 @@
+import { mergeSinkersForProduct } from "@/lib/catalog/sinkers";
 import { useDataStore } from "@/stores/data";
 import { isProductOrderable } from "@/lib/inventory/availability";
 import type { Category, Product, ProductAddon, Promotion } from "@/types";
@@ -14,8 +15,12 @@ export function selectCategories(): Category[] {
 }
 
 function productSinkers(product: Product): ProductAddon[] {
-  return (product.addons ?? []).filter(
-    (a) => !a.is_global && a.is_available
+  const category = getState().categories.find(
+    (c) => c.id === product.category_id
+  );
+  return mergeSinkersForProduct(
+    category?.sinkers ?? [],
+    (product.addons ?? []).filter((a) => !a.is_global)
   );
 }
 

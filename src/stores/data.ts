@@ -275,6 +275,16 @@ interface DataState {
       sortOrder?: number;
     }[]
   ) => void;
+  setCategorySinkers: (
+    categoryId: string,
+    sinkers: {
+      id?: string;
+      name: string;
+      price: number;
+      isAvailable?: boolean;
+      sortOrder?: number;
+    }[]
+  ) => void;
 
   addCategory: (input: CreateCategoryInput) => Category;
   updateCategory: (id: string, updates: Partial<Category>) => void;
@@ -455,6 +465,18 @@ export const useDataStore = create<DataState>()((set, get) => ({
               ...p,
               recipes: recipes
                 .filter((r) => r.inventoryItemId && r.quantityRequired > 0)
+                .reduce<
+                  {
+                    inventoryItemId: string;
+                    quantityRequired: number;
+                  }[]
+                >((acc, r) => {
+                  if (acc.some((x) => x.inventoryItemId === r.inventoryItemId)) {
+                    return acc;
+                  }
+                  acc.push(r);
+                  return acc;
+                }, [])
                 .map((r) => {
                   const existing = existingByInventory.get(r.inventoryItemId);
                   const existingId = existing?.id;
@@ -503,6 +525,45 @@ export const useDataStore = create<DataState>()((set, get) => ({
                   return {
                     id,
                     product_id: productId,
+                    category_id: null,
+                    name: a.name.trim(),
+                    description: existing?.description ?? null,
+                    price: a.price,
+                    is_available: a.isAvailable ?? true,
+                    is_global: false,
+                    sort_order: a.sortOrder ?? index,
+                  };
+                }),
+              updated_at: new Date().toISOString(),
+            };
+          }),
+        })),
+
+      setCategorySinkers: (categoryId, sinkers) =>
+        set((s) => ({
+          categories: s.categories.map((c) => {
+            if (c.id !== categoryId) return c;
+            const existingById = new Map((c.sinkers ?? []).map((a) => [a.id, a]));
+            return {
+              ...c,
+              sinkers: sinkers
+                .filter((a) => a.name.trim())
+                .map((a, index) => {
+                  const existing = a.id ? existingById.get(a.id) : undefined;
+                  const id =
+                    existing?.id ??
+                    (a.id &&
+                    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                      a.id
+                    )
+                      ? a.id
+                      : typeof crypto !== "undefined" && "randomUUID" in crypto
+                        ? crypto.randomUUID()
+                        : `cat-sinker-${categoryId}-${index}`);
+                  return {
+                    id,
+                    product_id: null,
+                    category_id: categoryId,
                     name: a.name.trim(),
                     description: existing?.description ?? null,
                     price: a.price,

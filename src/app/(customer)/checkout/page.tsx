@@ -44,6 +44,7 @@ import {
   parseCodCashInput,
   validateCodCashAmount,
 } from "@/components/customer/CodCashPanel";
+import { uploadPaymentProof } from "@/services/paymentProofService";
 import type { Address, Order, PaymentMethod } from "@/types";
 
 const PAYMENT_METHODS: {
@@ -97,6 +98,11 @@ export default function CheckoutPage() {
   const [selectedAddress, setSelectedAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("QRPH");
   const [codCashAmount, setCodCashAmount] = useState("");
+  const [paymentProofUrl, setPaymentProofUrl] = useState<string | null>(null);
+  const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(
+    null
+  );
+  const [uploadingPaymentProof, setUploadingPaymentProof] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [placing, setPlacing] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -179,6 +185,45 @@ export default function CheckoutPage() {
 
   const address = addresses.find((a) => a.id === selectedAddress);
 
+  const resetPaymentProof = () => {
+    setPaymentProofUrl(null);
+    if (paymentProofPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(paymentProofPreview);
+    }
+    setPaymentProofPreview(null);
+  };
+
+  const handlePaymentProofSelect = async (file: File) => {
+    let activeUser = user;
+    if (!activeUser) {
+      activeUser = await fetchCurrentProfile();
+      if (activeUser) useAuthStore.getState().setUser(activeUser);
+    }
+    if (!activeUser) {
+      toast.error("Please sign in to upload payment proof.");
+      router.push("/login?next=/checkout");
+      return;
+    }
+
+    if (paymentProofPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(paymentProofPreview);
+    }
+    setPaymentProofPreview(URL.createObjectURL(file));
+    setUploadingPaymentProof(true);
+    try {
+      const uploaded = await uploadPaymentProof(file, activeUser.id);
+      if ("error" in uploaded) {
+        toast.error(uploaded.error);
+        resetPaymentProof();
+        return;
+      }
+      setPaymentProofUrl(uploaded.publicUrl);
+      toast.success("Payment proof uploaded.");
+    } finally {
+      setUploadingPaymentProof(false);
+    }
+  };
+
   const finishOrder = (order: Order) => {
     addOrder(order);
 
@@ -241,6 +286,11 @@ export default function CheckoutPage() {
       codAmount = cashCheck.amount;
     }
 
+    if (paymentMethod === "QRPH" && !paymentProofUrl) {
+      toast.error("Upload proof of payment before placing your order.");
+      return;
+    }
+
     normalizeCart();
     const latestItems = useCartStore.getState().items;
     const stockCheck = validateCartStock(latestItems, products, inventory);
@@ -281,6 +331,8 @@ export default function CheckoutPage() {
       scheduledAt:
         fulfillmentTiming === "SCHEDULED" ? scheduledAt : null,
       codCashAmount: codAmount,
+      paymentProofUrl:
+        paymentMethod === "QRPH" ? paymentProofUrl ?? undefined : undefined,
     };
 
     setPlacing(true);
@@ -558,6 +610,7 @@ export default function CheckoutPage() {
               if (!v) return;
               setPaymentMethod(v as PaymentMethod);
               if (v !== "COD") setCodCashAmount("");
+              if (v !== "QRPH") resetPaymentProof();
             }}
             className="space-y-3"
           >
@@ -588,7 +641,12 @@ export default function CheckoutPage() {
             ))}
           </RadioGroup>
           {paymentMethod === "QRPH" && (
-            <QRPhPaymentPanel amount={total} />
+            <QRPhPaymentPanel
+              amount={total}
+              proofPreviewUrl={paymentProofPreview}
+              onProofFileSelect={(file) => void handlePaymentProofSelect(file)}
+              uploadingProof={uploadingPaymentProof}
+            />
           )}
           {paymentMethod === "COD" && (
             <CodCashPanel
@@ -607,6 +665,16 @@ export default function CheckoutPage() {
                   const cashCheck = validateCodCashAmount(codCashAmount, total);
                   if (!cashCheck.ok) {
                     toast.error(cashCheck.message);
+                    return;
+                  }
+                }
+                if (paymentMethod === "QRPH") {
+                  if (uploadingPaymentProof) {
+                    toast.error("Wait for the payment proof upload to finish.");
+                    return;
+                  }
+                  if (!paymentProofUrl) {
+                    toast.error("Upload proof of payment before continuing.");
                     return;
                   }
                 }
@@ -708,7 +776,11 @@ export default function CheckoutPage() {
           </div>
 
           {paymentMethod === "QRPH" && (
-            <QRPhPaymentPanel amount={total} />
+            <QRPhPaymentPanel
+              amount={total}
+              proofPreviewUrl={paymentProofPreview}
+              readOnly
+            />
           )}
 
           {paymentMethod === "COD" && (
@@ -727,7 +799,12 @@ export default function CheckoutPage() {
             </Button>
             <Button
               onClick={handlePlaceOrder}
-              disabled={placing || authInitializing}
+              disabled={
+                placing ||
+                authInitializing ||
+                uploadingPaymentProof ||
+                (paymentMethod === "QRPH" && !paymentProofUrl)
+              }
               className="flex-1 rounded-xl bg-green hover:bg-green/90"
             >
               {placing || authInitializing ? (

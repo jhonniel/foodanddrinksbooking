@@ -55,21 +55,22 @@ export function useRealtimeNotifications(
   options: RealtimeNotificationOptions
 ) {
   const notifications = useAppStore((s) => s.notifications);
+  const notificationsHydrated = useAppStore((s) => s.notificationsHydrated);
   const seen = useRef<Set<string>>(new Set());
-  const ready = useRef(false);
+  const primed = useRef(false);
   const matchKey = (options.alsoMatchIds ?? []).slice().sort().join("|");
 
   useEffect(() => {
-    ready.current = false;
+    primed.current = false;
     seen.current = new Set();
   }, [userId, options.audience]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !notificationsHydrated) return;
 
-    if (!ready.current) {
+    if (!primed.current) {
       notifications.forEach((n) => seen.current.add(n.id));
-      ready.current = true;
+      primed.current = true;
       return;
     }
 
@@ -130,5 +131,12 @@ export function useRealtimeNotifications(
         }
       }
     }
-  }, [notifications, userId, options.audience, options.sound, matchKey]);
+  }, [
+    notifications,
+    notificationsHydrated,
+    userId,
+    options.audience,
+    options.sound,
+    matchKey,
+  ]);
 }

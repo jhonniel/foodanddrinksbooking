@@ -12,19 +12,25 @@ export function NotificationsSync() {
   const user = useAuthStore((s) => s.user);
   const initializing = useAuthStore((s) => s.initializing);
   const setNotifications = useAppStore((s) => s.setNotifications);
+  const setNotificationsHydrated = useAppStore(
+    (s) => s.setNotificationsHydrated
+  );
 
   useEffect(() => {
     if (initializing || !user) {
       setNotifications([]);
+      setNotificationsHydrated(false);
       return;
     }
 
     let cancelled = false;
+    setNotificationsHydrated(false);
 
     const load = async () => {
       const { notifications, error } = await fetchNotifications();
-      if (cancelled || error) return;
-      setNotifications(notifications);
+      if (cancelled) return;
+      if (!error) setNotifications(notifications);
+      setNotificationsHydrated(true);
     };
 
     void load();
@@ -33,7 +39,7 @@ export function NotificationsSync() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [user?.id, initializing, setNotifications]);
+  }, [user?.id, initializing, setNotifications, setNotificationsHydrated]);
 
   return null;
 }

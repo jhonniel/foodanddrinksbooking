@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-export type ImageKind = "products" | "avatars" | "delivery-proofs";
+export type ImageKind = "products" | "avatars" | "delivery-proofs" | "payment-proofs";
 
 export function isS3Configured(): boolean {
   return Boolean(
@@ -132,5 +132,6 @@ export async function getSignedS3ObjectUrl(
 export function kindFromBucketHint(hint: string): ImageKind {
   if (hint === "avatars") return "avatars";
   if (hint === "delivery-proofs") return "delivery-proofs";
+  if (hint === "payment-proofs") return "payment-proofs";
   return "products";
 }

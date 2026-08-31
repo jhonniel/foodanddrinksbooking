@@ -13,6 +13,8 @@ interface AppState {
   orders: Order[];
   deliveries: DeliveryOrder[];
   notifications: Notification[];
+  /** True after the first notification fetch for the signed-in user completes. */
+  notificationsHydrated: boolean;
   driverOnline: boolean;
   /** Always true — orders are never read from localStorage. */
   hasHydrated: boolean;
@@ -20,6 +22,7 @@ interface AppState {
   setOrders: (orders: Order[]) => void;
   setDeliveries: (deliveries: DeliveryOrder[]) => void;
   setNotifications: (notifications: Notification[]) => void;
+  setNotificationsHydrated: (value: boolean) => void;
   mergeOrders: (orders: Order[]) => void;
   mergeDeliveries: (deliveries: DeliveryOrder[]) => void;
   addOrder: (order: Order) => void;
@@ -66,6 +69,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       orders: [],
       deliveries: [],
       notifications: [],
+      notificationsHydrated: false,
       driverOnline: false,
       hasHydrated: true,
 
@@ -73,6 +77,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       setOrders: (orders) => set({ orders }),
       setDeliveries: (deliveries) => set({ deliveries }),
       setNotifications: (notifications) => set({ notifications }),
+      setNotificationsHydrated: (value) => set({ notificationsHydrated: value }),
       mergeOrders: (orders) =>
         set((s) => ({ orders: mergeById(s.orders, orders) })),
       mergeDeliveries: (deliveries) =>
