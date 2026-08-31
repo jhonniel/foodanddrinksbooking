@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAuthStore, canAccessAdmin, canAccessDriver } from "@/stores/auth";
 import { isPhoneAuthEmail } from "@/lib/auth/phone";
 import { compressImageFile } from "@/lib/utils/compressImage";
+import { formatPoints } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import { SavedAddressesCard } from "@/components/customer/SavedAddressesCard";
 
@@ -53,11 +54,51 @@ function MenuLink({
 
 export default function ProfilePage() {
   const user = useAuthStore((s) => s.user);
+  const authInitializing = useAuthStore((s) => s.initializing);
   const updateUser = useAuthStore((s) => s.updateUser);
   const logout = useAuthStore((s) => s.logout);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pointsBalance, setPointsBalance] = useState<number | null>(null);
+  const [pointsLoading, setPointsLoading] = useState(true);
+
+  const refreshPoints = useCallback(async () => {
+    if (!user?.id) {
+      setPointsBalance(null);
+      setPointsLoading(false);
+      return;
+    }
+    setPointsLoading(true);
+    try {
+      const res = await fetch("/api/me/points", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => null)) as {
+        pointsBalance?: number;
+        lifetimePoints?: number;
+      } | null;
+      if (res.ok && data && typeof data.pointsBalance === "number") {
+        setPointsBalance(data.pointsBalance);
+        updateUser({
+          points_balance: data.pointsBalance,
+          lifetime_points: data.lifetimePoints,
+        });
+      } else {
+        setPointsBalance(user.points_balance ?? 0);
+      }
+    } catch {
+      setPointsBalance(user.points_balance ?? 0);
+    } finally {
+      setPointsLoading(false);
+    }
+  }, [user?.id, user?.points_balance, updateUser]);
+
+  useEffect(() => {
+    if (authInitializing) return;
+    void refreshPoints();
+  }, [authInitializing, refreshPoints]);
 
   const handleLogout = async () => {
     await logout();
@@ -228,6 +269,23 @@ export default function ProfilePage() {
               <span className="break-all font-medium text-navy">{user.email}</span>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white p-4 shadow-card">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm text-muted-foreground">Rewards points</p>
+            <p className="text-2xl font-bold text-navy">
+              {pointsLoading ? "—" : formatPoints(pointsBalance ?? 0)}
+            </p>
+          </div>
+          <Link
+            href="/rewards"
+            className="inline-flex items-center rounded-xl bg-light-blue px-3 py-2 text-sm font-medium text-sky hover:bg-light-blue/80"
+          >
+            View history
+          </Link>
         </div>
       </div>
 

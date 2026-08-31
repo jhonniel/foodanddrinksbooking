@@ -4,7 +4,10 @@ import {
   assertRole,
   getSessionProfileFromRequest,
 } from "@/lib/auth/server";
-import { isSupabaseConfigured } from "@/lib/auth/config";
+import {
+  getSupabaseServiceRoleKey,
+  isSupabaseConfigured,
+} from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
 import { adjustCustomerPoints } from "@/lib/supabase/loyalty";
 import { generateIdempotencyKey } from "@/lib/utils/format";
@@ -26,6 +29,16 @@ export async function POST(
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
       { error: "Supabase is required for points adjustments." },
+      { status: 503 }
+    );
+  }
+
+  if (!getSupabaseServiceRoleKey()) {
+    return NextResponse.json(
+      {
+        error:
+          "SUPABASE_SERVICE_ROLE_KEY is required to grant or adjust customer points.",
+      },
       { status: 503 }
     );
   }

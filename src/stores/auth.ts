@@ -34,6 +34,7 @@ interface AuthState {
   }>;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<Profile>) => void;
+  refreshProfile: () => Promise<void>;
 }
 
 /**
@@ -125,6 +126,17 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set((s) => ({
       user: s.user ? { ...s.user, ...updates } : null,
     })),
+
+  refreshProfile: async () => {
+    try {
+      const profile = await fetchCurrentProfile();
+      if (profile) {
+        set({ user: profile, isAuthenticated: true });
+      }
+    } catch {
+      /* keep existing session */
+    }
+  },
 }));
 
 export { isStaffRole, canAccessAdmin, canAccessDriver };

@@ -216,13 +216,14 @@ export async function recordPointsRedeemedForOrder(
 }
 
 export async function fetchPointsTransactionsForCustomer(
-  customerId: string
+  customerId: string,
+  client?: OrdersClient | null
 ): Promise<PointsTransaction[]> {
   if (!isSupabaseConfigured()) return [];
-  const client = await createServerClient();
-  if (!client) return [];
+  const db = client ?? (await createServerClient());
+  if (!db) return [];
 
-  const { data, error } = await client
+  const { data, error } = await db
     .from("points_transactions")
     .select("*")
     .eq("customer_id", customerId)

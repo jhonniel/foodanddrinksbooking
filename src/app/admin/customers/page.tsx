@@ -262,9 +262,13 @@ export default function AdminCustomersPage() {
       }
 
       toast.success(
-        `Granted ${formatPoints(amount)} points. New balance: ${formatPoints(
-          data?.pointsBalance ?? 0
-        )}.`
+        `Granted ${formatPoints(amount)} points to ${ledgerCustomer.full_name}${
+          ledgerCustomer.email && !isPhoneAuthEmail(ledgerCustomer.email)
+            ? ` (${ledgerCustomer.email})`
+            : ledgerCustomer.phone
+              ? ` (${ledgerCustomer.phone})`
+              : ""
+        }. New balance: ${formatPoints(data?.pointsBalance ?? 0)}.`
       );
       setGrantAmount("");
       setGrantNote("");

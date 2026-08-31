@@ -4,7 +4,10 @@ import {
   getSupabaseServiceRoleKey,
   isSupabaseConfigured,
 } from "@/lib/auth/config";
-import { createServerClient } from "@/lib/supabase/server";
+import {
+  createBrowserLikeServerClient,
+  createServerClient,
+} from "@/lib/supabase/server";
 import {
   buildPointsLedgerFromOrders,
   fetchPointsTransactionsForCustomer,
@@ -18,7 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!isSupabaseConfigured() || !getSupabaseServiceRoleKey()) {
+  if (!isSupabaseConfigured()) {
     return NextResponse.json({
       pointsBalance: session.points_balance,
       lifetimePoints: session.lifetime_points,
@@ -31,19 +34,25 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const client = await createServerClient();
-  if (!client) {
+  const customerId = session.id;
+  const userClient = await createBrowserLikeServerClient();
+  const serviceClient = getSupabaseServiceRoleKey()
+    ? await createServerClient()
+    : null;
+  const readClient = userClient ?? serviceClient;
+
+  if (!readClient) {
     return NextResponse.json(
       { error: "Supabase client unavailable." },
       { status: 500 }
     );
   }
 
-  const customerId = session.id;
+  if (serviceClient) {
+    await syncDeliveredOrderPointsForCustomer(customerId);
+  }
 
-  await syncDeliveredOrderPointsForCustomer(customerId);
-
-  const { data: profileRow } = await client
+  const { data: profileRow } = await readClient
     .from("profiles")
     .select("points_balance, lifetime_points")
     .eq("id", customerId)
@@ -56,7 +65,7 @@ export async function GET(request: NextRequest) {
     profileRow?.lifetime_points ?? session.lifetime_points ?? 0
   );
 
-  const { data: orderRows } = await client
+  const { data: orderRows } = await readClient
     .from("orders")
     .select(
       "id, order_number, status, subtotal, discount, points_discount, points_earned, points_used, created_at, delivered_at, updated_at"
@@ -78,7 +87,10 @@ export async function GET(request: NextRequest) {
     updated_at: String(row.updated_at ?? new Date().toISOString()),
   }));
 
-  const storedTx = await fetchPointsTransactionsForCustomer(customerId);
+  const storedTx = await fetchPointsTransactionsForCustomer(
+    customerId,
+    readClient
+  );
   const pointsLedger = buildPointsLedgerFromOrders(
     customerId,
     orders,

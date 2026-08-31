@@ -54,6 +54,7 @@ export default function RewardsPage() {
   const router = useRouter();
   const reduce = useReducedMotion();
   const user = useAuthStore((s) => s.user);
+  const authInitializing = useAuthStore((s) => s.initializing);
   const updateUser = useAuthStore((s) => s.updateUser);
   const storeRewards = useDataStore((s) => s.rewards);
   const setPromo = useCartStore((s) => s.setPromo);
@@ -143,8 +144,26 @@ export default function RewardsPage() {
   }, [storeRewards]);
 
   useEffect(() => {
+    if (authInitializing) return;
     void refreshPoints();
-  }, [refreshPoints]);
+  }, [authInitializing, refreshPoints]);
+
+  useEffect(() => {
+    if (authInitializing || !user?.id) return;
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshPoints();
+      }
+    };
+
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [authInitializing, user?.id, refreshPoints]);
 
   useEffect(() => {
     void refreshVouchers();
