@@ -89,7 +89,10 @@ export function breakdownRecipeCostForOneUnit(
 
 export function estimateRecipeCostForOneUnit(
   recipes: Array<{ inventory_item_id: string; quantity_required: number }>,
-  inventory: Pick<InventoryItem, "id" | "cost_per_unit">[]
+  inventory: Pick<
+    InventoryItem,
+    "id" | "name" | "unit" | "cost_per_unit"
+  >[]
 ): number {
   return breakdownRecipeCostForOneUnit(recipes, inventory).total;
 }

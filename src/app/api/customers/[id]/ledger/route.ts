@@ -48,6 +48,7 @@ function mapOrderLite(row: Record<string, unknown>): Order {
     payment_method: (row.payment_method as Order["payment_method"]) || "COD",
     cod_cash_amount:
       row.cod_cash_amount != null ? Number(row.cod_cash_amount) : null,
+    payment_proof_url: (row.payment_proof_url as string | null) ?? null,
     delivery_address_id: null,
     delivery_address_snapshot: null,
     delivery_instructions: null,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,6 +16,7 @@ import {
   getAvailableScheduleDates,
   getScheduleTimeSlots,
   localDateTimeToUtc,
+  parseScheduleLocalDateTime,
 } from "@/lib/storeHours";
 
 type FulfillmentTiming = "ASAP" | "SCHEDULED";
@@ -42,12 +43,15 @@ export function ScheduleOrderPicker({
     [storeHours]
   );
 
-  const [dateValue, setDateValue] = useState(dates[0]?.value ?? "");
+  const [dateValue, setDateValue] = useState("");
+  const [timeValue, setTimeValue] = useState("");
+  const [initialized, setInitialized] = useState(false);
+  const lastPublishedIsoRef = useRef<string | null>(null);
+
   const timeSlots = useMemo(
     () => (dateValue ? getScheduleTimeSlots(storeHours, dateValue) : []),
     [storeHours, dateValue]
   );
-  const [timeValue, setTimeValue] = useState(timeSlots[0]?.value ?? "");
 
   useEffect(() => {
     if (!storeOpen && fulfillmentTiming === "ASAP") {
@@ -56,27 +60,61 @@ export function ScheduleOrderPicker({
   }, [storeOpen, fulfillmentTiming, onTimingChange]);
 
   useEffect(() => {
-    if (dates.length && !dates.some((d) => d.value === dateValue)) {
-      setDateValue(dates[0].value);
+    if (initialized || dates.length === 0) return;
+
+    let nextDate = dates[0].value;
+    let nextTime = getScheduleTimeSlots(storeHours, nextDate)[0]?.value ?? "";
+
+    if (fulfillmentTiming === "SCHEDULED" && scheduledAt) {
+      const parsed = parseScheduleLocalDateTime(
+        scheduledAt,
+        storeHours.timezone
+      );
+      if (parsed && dates.some((d) => d.value === parsed.date)) {
+        nextDate = parsed.date;
+        const slots = getScheduleTimeSlots(storeHours, nextDate);
+        nextTime = slots.some((s) => s.value === parsed.time)
+          ? parsed.time
+          : (slots[0]?.value ?? nextTime);
+      }
     }
-  }, [dates, dateValue]);
+
+    setInitialized(true);
+    setDateValue(nextDate);
+    setTimeValue(nextTime);
+  }, [dates, fulfillmentTiming, scheduledAt, storeHours, initialized]);
 
   useEffect(() => {
-    if (timeSlots.length && !timeSlots.some((s) => s.value === timeValue)) {
-      setTimeValue(timeSlots[0].value);
-    }
-  }, [timeSlots, timeValue]);
+    if (!initialized || dates.length === 0) return;
+    if (dates.some((d) => d.value === dateValue)) return;
+    setDateValue(dates[0].value);
+  }, [dates, dateValue, initialized]);
 
   useEffect(() => {
-    if (fulfillmentTiming !== "SCHEDULED" || !dateValue || !timeValue) {
-      if (fulfillmentTiming === "ASAP") onScheduledAtChange(null);
+    if (!initialized || timeSlots.length === 0) return;
+    if (timeSlots.some((s) => s.value === timeValue)) return;
+    setTimeValue(timeSlots[0].value);
+  }, [timeSlots, timeValue, initialized]);
+
+  useEffect(() => {
+    if (!initialized) return;
+
+    if (fulfillmentTiming === "ASAP") {
+      lastPublishedIsoRef.current = null;
+      onScheduledAtChange(null);
       return;
     }
+
+    if (!dateValue || !timeValue) return;
+
     const iso = localDateTimeToUtc(
       dateValue,
       timeValue,
       storeHours.timezone
     ).toISOString();
+
+    if (iso === lastPublishedIsoRef.current) return;
+    lastPublishedIsoRef.current = iso;
     onScheduledAtChange(iso);
   }, [
     fulfillmentTiming,
@@ -86,28 +124,7 @@ export function ScheduleOrderPicker({
     onScheduledAtChange,
   ]);
 
-  useEffect(() => {
-    if (!scheduledAt || fulfillmentTiming !== "SCHEDULED") return;
-    const d = new Date(scheduledAt);
-    const tz = storeHours.timezone;
-    const dateStr = new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(d);
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: tz,
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(d);
-    const h = parts.find((p) => p.type === "hour")?.value ?? "09";
-    const m = parts.find((p) => p.type === "minute")?.value ?? "00";
-    const timeStr = `${h}:${m}`;
-    if (dates.some((item) => item.value === dateStr)) setDateValue(dateStr);
-    if (timeSlots.some((item) => item.value === timeStr)) setTimeValue(timeStr);
-  }, [scheduledAt, fulfillmentTiming, storeHours.timezone, dates, timeSlots]);
+  const scheduleReady = initialized && Boolean(dateValue && timeValue);
 
   return (
     <div className="space-y-3">
@@ -156,11 +173,21 @@ export function ScheduleOrderPicker({
             <p className="text-sm text-muted-foreground sm:col-span-2">
               No open days available to schedule. Check store hours in Settings.
             </p>
+          ) : !scheduleReady ? (
+            <p className="text-sm text-muted-foreground sm:col-span-2">
+              Loading schedule options…
+            </p>
           ) : (
             <>
               <div className="space-y-2">
                 <Label>Date</Label>
-                <Select value={dateValue} onValueChange={(v) => v && setDateValue(v)}>
+                <Select
+                  value={dateValue}
+                  onValueChange={(v) => {
+                    if (!v || v === dateValue) return;
+                    setDateValue(v);
+                  }}
+                >
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="Choose date" />
                   </SelectTrigger>
@@ -177,7 +204,10 @@ export function ScheduleOrderPicker({
                 <Label>Time</Label>
                 <Select
                   value={timeValue}
-                  onValueChange={(v) => v && setTimeValue(v)}
+                  onValueChange={(v) => {
+                    if (!v || v === timeValue) return;
+                    setTimeValue(v);
+                  }}
                   disabled={timeSlots.length === 0}
                 >
                   <SelectTrigger className="rounded-xl">

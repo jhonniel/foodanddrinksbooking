@@ -14,6 +14,7 @@ import {
 import {
   isPromotionCurrentlyValid,
   isPromotionVisibleToCustomers,
+  isHomePromotionVisible,
 } from "@/lib/vouchers/promotionValidity";
 import type { PromoKind, Promotion, PromotionType, VoucherClaim, VoucherRedemptionMode } from "@/types";
 

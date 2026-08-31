@@ -361,6 +361,31 @@ export function getScheduleTimeSlots(
   return slots;
 }
 
+/** Parse a UTC ISO schedule timestamp into local date (YYYY-MM-DD) and time (HH:mm). */
+export function parseScheduleLocalDateTime(
+  iso: string,
+  timeZone: string = STORE_TIMEZONE
+): { date: string; time: string } | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "09";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return { date, time: `${h}:${m}` };
+}
+
 export function formatScheduledDateTime(
   iso: string,
   timeZone: string = STORE_TIMEZONE

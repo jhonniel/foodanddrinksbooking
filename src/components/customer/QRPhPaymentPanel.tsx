@@ -5,7 +5,6 @@ import Image from "next/image";
 import { CheckCircle2, ImagePlus, Loader2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils/format";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const QRPH_PAYMENT_QR_SRC = "/qrph-payment.jpg";
@@ -17,6 +16,8 @@ type QRPhPaymentPanelProps = {
   onProofFileSelect?: (file: File) => void;
   uploadingProof?: boolean;
   readOnly?: boolean;
+  /** When false, only show the QR code (e.g. payment method step). */
+  showProofUpload?: boolean;
 };
 
 export function QRPhPaymentPanel({
@@ -26,6 +27,7 @@ export function QRPhPaymentPanel({
   onProofFileSelect,
   uploadingProof = false,
   readOnly = false,
+  showProofUpload = true,
 }: QRPhPaymentPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -48,10 +50,13 @@ export function QRPhPaymentPanel({
         <p className="mt-1 text-lg font-bold text-green">{formatCurrency(amount)}</p>
       )}
       <p className="mt-2 text-xs text-muted-foreground">
-        Open your bank or e-wallet app, scan this QR code, pay the exact amount,
-        then upload your payment screenshot below.
+        Open your bank or e-wallet app, scan this QR code, pay the exact amount
+        {showProofUpload
+          ? ", then upload your payment screenshot below."
+          : ". You'll upload proof on the next step."}
       </p>
 
+      {showProofUpload ? (
       <div className="mt-4 rounded-xl border border-dashed border-border bg-muted/30 p-3 text-left">
         <Label htmlFor="qrph-proof" className="text-sm font-semibold text-navy">
           Proof of payment *
@@ -83,7 +88,7 @@ export function QRPhPaymentPanel({
           )
         ) : (
           <div className="mt-3 space-y-2">
-            <Input
+            <input
               ref={fileInputRef}
               id="qrph-proof"
               type="file"
@@ -140,6 +145,7 @@ export function QRPhPaymentPanel({
           </div>
         )}
       </div>
+      ) : null}
     </div>
   );
 }

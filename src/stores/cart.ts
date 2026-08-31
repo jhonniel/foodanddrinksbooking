@@ -104,6 +104,13 @@ function applyStockRules(items: CartItem[], strict = true): CartItem[] {
   });
 }
 
+function cartItemsUnchanged(a: CartItem[], b: CartItem[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (item, i) => item.id === b[i].id && item.quantity === b[i].quantity
+  );
+}
+
 export const CART_STORAGE_KEY = "island-coolers-cart-v4";
 
 /** Default: no pin until user confirms Samal location */
@@ -232,9 +239,11 @@ export const useCartStore = create<CartState>()(
       normalizeCart: () => {
         const { hydrated } = getCatalogState();
         if (!hydrated) return;
-        set((s) => ({
-          items: applyStockRules(s.items, true),
-        }));
+        set((s) => {
+          const nextItems = applyStockRules(s.items, true);
+          if (cartItemsUnchanged(nextItems, s.items)) return s;
+          return { items: nextItems };
+        });
       },
 
       clearCart: () =>
@@ -260,17 +269,35 @@ export const useCartStore = create<CartState>()(
       setOrderType: (orderType) => set({ orderType }),
 
       setFulfillmentTiming: (fulfillmentTiming) =>
-        set({
-          fulfillmentTiming,
-          scheduledAt: fulfillmentTiming === "ASAP" ? null : get().scheduledAt,
+        set((s) => {
+          if (s.fulfillmentTiming === fulfillmentTiming) {
+            if (fulfillmentTiming === "ASAP" && s.scheduledAt !== null) {
+              return { scheduledAt: null };
+            }
+            return s;
+          }
+          return {
+            fulfillmentTiming,
+            scheduledAt: fulfillmentTiming === "ASAP" ? null : s.scheduledAt,
+          };
         }),
 
-      setScheduledAt: (scheduledAt) => set({ scheduledAt }),
+      setScheduledAt: (scheduledAt) =>
+        set((s) => (s.scheduledAt === scheduledAt ? s : { scheduledAt })),
 
       setDeliveryLocation: (location, label = null) =>
-        set({
-          deliveryLocation: location,
-          deliveryAddressLabel: label,
+        set((s) => {
+          if (
+            s.deliveryLocation?.lat === location?.lat &&
+            s.deliveryLocation?.lng === location?.lng &&
+            s.deliveryAddressLabel === label
+          ) {
+            return s;
+          }
+          return {
+            deliveryLocation: location,
+            deliveryAddressLabel: label,
+          };
         }),
 
       itemCount: () => get().items.reduce((s, i) => s + i.quantity, 0),
@@ -325,8 +352,6 @@ export const useCartStore = create<CartState>()(
         orderType: state.orderType,
         deliveryLocation: state.deliveryLocation,
         deliveryAddressLabel: state.deliveryAddressLabel,
-        fulfillmentTiming: state.fulfillmentTiming,
-        scheduledAt: state.scheduledAt,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

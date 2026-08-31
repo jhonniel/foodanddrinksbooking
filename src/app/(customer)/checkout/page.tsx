@@ -138,19 +138,28 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     const addr = addresses.find((a) => a.id === selectedAddress);
-    if (!addr) return;
-    if (addr.latitude != null && addr.longitude != null) {
-      setDeliveryLocation(
-        { lat: addr.latitude, lng: addr.longitude },
-        addr.label
-      );
+    if (!addr || addr.latitude == null || addr.longitude == null) return;
+
+    const current = useCartStore.getState().deliveryLocation;
+    const label = useCartStore.getState().deliveryAddressLabel;
+    if (
+      current?.lat === addr.latitude &&
+      current?.lng === addr.longitude &&
+      label === addr.label
+    ) {
+      return;
     }
+
+    setDeliveryLocation(
+      { lat: addr.latitude, lng: addr.longitude },
+      addr.label
+    );
   }, [selectedAddress, addresses, setDeliveryLocation]);
 
   useEffect(() => {
     if (!catalogHydrated) return;
     normalizeCart();
-  }, [normalizeCart, products, inventory, catalogHydrated]);
+  }, [normalizeCart, catalogHydrated]);
 
   if (items.length === 0) {
     return (
@@ -641,12 +650,7 @@ export default function CheckoutPage() {
             ))}
           </RadioGroup>
           {paymentMethod === "QRPH" && (
-            <QRPhPaymentPanel
-              amount={total}
-              proofPreviewUrl={paymentProofPreview}
-              onProofFileSelect={(file) => void handlePaymentProofSelect(file)}
-              uploadingProof={uploadingPaymentProof}
-            />
+            <QRPhPaymentPanel amount={total} showProofUpload={false} />
           )}
           {paymentMethod === "COD" && (
             <CodCashPanel
@@ -665,16 +669,6 @@ export default function CheckoutPage() {
                   const cashCheck = validateCodCashAmount(codCashAmount, total);
                   if (!cashCheck.ok) {
                     toast.error(cashCheck.message);
-                    return;
-                  }
-                }
-                if (paymentMethod === "QRPH") {
-                  if (uploadingPaymentProof) {
-                    toast.error("Wait for the payment proof upload to finish.");
-                    return;
-                  }
-                  if (!paymentProofUrl) {
-                    toast.error("Upload proof of payment before continuing.");
                     return;
                   }
                 }
@@ -779,7 +773,8 @@ export default function CheckoutPage() {
             <QRPhPaymentPanel
               amount={total}
               proofPreviewUrl={paymentProofPreview}
-              readOnly
+              onProofFileSelect={(file) => void handlePaymentProofSelect(file)}
+              uploadingProof={uploadingPaymentProof}
             />
           )}
 
