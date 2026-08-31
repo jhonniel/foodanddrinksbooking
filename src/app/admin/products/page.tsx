@@ -47,8 +47,27 @@ type RecipeDraft = {
   quantityRequired: string;
 };
 
+type SinkerDraft = {
+  id: string;
+  name: string;
+  price: string;
+  isAvailable: boolean;
+};
+
 function emptyRecipe(): RecipeDraft {
   return { inventoryItemId: "", quantityRequired: "" };
+}
+
+function emptySinker(): SinkerDraft {
+  return {
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `sinker-${Date.now()}`,
+    name: "",
+    price: "",
+    isAvailable: true,
+  };
 }
 
 function isUuid(id: string) {
@@ -68,6 +87,7 @@ export default function AdminProductsPage() {
     (s) => s.toggleProductAvailability
   );
   const setProductRecipes = useDataStore((s) => s.setProductRecipes);
+  const setProductAddons = useDataStore((s) => s.setProductAddons);
 
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -82,6 +102,7 @@ export default function AdminProductsPage() {
   const [isFeatured, setIsFeatured] = useState(false);
   const [isBestSeller, setIsBestSeller] = useState(false);
   const [recipes, setRecipes] = useState<RecipeDraft[]>([emptyRecipe()]);
+  const [sinkers, setSinkers] = useState<SinkerDraft[]>([]);
 
   const activeCategories = useMemo(
     () => [...categories].sort((a, b) => a.sort_order - b.sort_order),
@@ -129,6 +150,7 @@ export default function AdminProductsPage() {
     setIsFeatured(false);
     setIsBestSeller(false);
     setRecipes([emptyRecipe()]);
+    setSinkers([]);
     setEditProduct(null);
   };
 
@@ -158,7 +180,42 @@ export default function AdminProductsPage() {
           }))
         : [emptyRecipe()]
     );
+    setSinkers(
+      (product.addons ?? [])
+        .filter((a) => !a.is_global)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((a) => ({
+          id: a.id,
+          name: a.name,
+          price: String(a.price),
+          isAvailable: a.is_available,
+        }))
+    );
     setDialogOpen(true);
+  };
+
+  const updateSinker = (index: number, patch: Partial<SinkerDraft>) => {
+    setSinkers((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    );
+  };
+
+  const parseSinkers = () => {
+    const parsed = sinkers
+      .map((s) => ({
+        id: s.id,
+        name: s.name.trim(),
+        price: parseFloat(s.price),
+        isAvailable: s.isAvailable,
+      }))
+      .filter((s) => s.name && !isNaN(s.price) && s.price >= 0);
+
+    const names = parsed.map((s) => s.name.toLowerCase());
+    if (new Set(names).size !== names.length) {
+      toast.error("Each sinker name must be unique for this drink.");
+      return null;
+    }
+    return parsed;
   };
 
   const updateRecipe = (index: number, patch: Partial<RecipeDraft>) => {
@@ -192,7 +249,8 @@ export default function AdminProductsPage() {
     const trimmedName = name.trim();
     const parsedPrice = parseFloat(price);
     const parsedRecipes = parseRecipes();
-    if (!parsedRecipes) return;
+    const parsedSinkers = parseSinkers();
+    if (!parsedRecipes || parsedSinkers === null) return;
 
     if (!trimmedName) {
       toast.error("Product name is required.");
@@ -235,6 +293,7 @@ export default function AdminProductsPage() {
           ...(nextImageUrl ? { image_url: nextImageUrl } : {}),
         });
         setProductRecipes(editProduct.id, parsedRecipes);
+        setProductAddons(editProduct.id, parsedSinkers);
 
         const latest = useDataStore
           .getState()
@@ -271,6 +330,10 @@ export default function AdminProductsPage() {
         isBestSeller,
         recipes: parsedRecipes,
       });
+
+      if (parsedSinkers.length > 0) {
+        setProductAddons(created.id, parsedSinkers);
+      }
 
       if (imageFile) {
         const uploaded = await uploadProductImage(imageFile, created.id);
@@ -592,6 +655,92 @@ export default function AdminProductsPage() {
                   </div>
                 ))}
               </div>
+
+              <div className="space-y-3 rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-navy">Sinkers</p>
+                    <p className="text-xs text-muted-foreground">
+                      Optional add-ons customers can pick for this drink (e.g.
+                      pearls, jelly)
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setSinkers((rows) => [...rows, emptySinker()])}
+                  >
+                    <Plus className="mr-1 h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                </div>
+
+                {sinkers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No sinkers yet. Add pearls, jelly, or other toppings.
+                  </p>
+                ) : (
+                  sinkers.map((row, index) => (
+                    <div
+                      key={row.id}
+                      className="space-y-2 rounded-lg bg-muted/40 p-2"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Input
+                          placeholder="Sinker name (e.g. Classic Pearls)"
+                          value={row.name}
+                          onChange={(e) =>
+                            updateSinker(index, { name: e.target.value })
+                          }
+                          className="sm:flex-1"
+                        />
+                        <div className="flex gap-2 sm:shrink-0">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Price ₱"
+                            className="w-full sm:w-28"
+                            value={row.price}
+                            onChange={(e) =>
+                              updateSinker(index, { price: e.target.value })
+                            }
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 text-destructive"
+                            onClick={() =>
+                              setSinkers((rows) =>
+                                rows.filter((_, i) => i !== index)
+                              )
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={`sinker-available-${row.id}`}
+                          checked={row.isAvailable}
+                          onCheckedChange={(v) =>
+                            updateSinker(index, { isAvailable: v === true })
+                          }
+                        />
+                        <Label
+                          htmlFor={`sinker-available-${row.id}`}
+                          className="cursor-pointer text-xs text-muted-foreground"
+                        >
+                          Available to customers
+                        </Label>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
             </DialogScrollBody>
             <DialogStickyFooter>
@@ -707,6 +856,18 @@ export default function AdminProductsPage() {
                     )}
                     {product.is_best_seller && (
                       <Badge variant="secondary">Best seller</Badge>
+                    )}
+                    {(product.addons ?? []).filter((a) => !a.is_global).length >
+                      0 && (
+                      <Badge variant="outline">
+                        {(product.addons ?? []).filter((a) => !a.is_global)
+                          .length}{" "}
+                        sinker
+                        {(product.addons ?? []).filter((a) => !a.is_global)
+                          .length === 1
+                          ? ""
+                          : "s"}
+                      </Badge>
                     )}
                     {!product.is_available && (
                       <Badge variant="destructive">Unavailable</Badge>

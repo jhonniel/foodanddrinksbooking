@@ -1,14 +1,16 @@
 import "server-only";
 
 import { randomUUID } from "crypto";
-import type { Category, Product, ProductRecipe } from "@/types";
+import type { Category, Product, ProductAddon, ProductRecipe } from "@/types";
 import { isSupabaseConfigured } from "@/lib/auth/config";
 import { createServerClient } from "@/lib/supabase/server";
 import {
+  groupAddonsByProduct,
   groupRecipes,
   mapCategory,
   mapInventory,
   mapProduct,
+  type DbAddon,
   type DbCategory,
   type DbInventory,
   type DbProduct,
@@ -81,16 +83,78 @@ async function syncProductRecipesInSupabase(
   return {};
 }
 
+/** Replace per-product sinkers (product_addons where is_global = false). */
+async function syncProductAddonsInSupabase(
+  client: NonNullable<Awaited<ReturnType<typeof createServerClient>>>,
+  productId: string,
+  addons: ProductAddon[] | undefined
+): Promise<{ error?: string }> {
+  if (addons === undefined) return {};
+
+  const sinkers = (addons ?? []).filter((a) => !a.is_global);
+  const keepIds = new Set(
+    sinkers.map((a) => a.id).filter((id) => isUuid(id))
+  );
+
+  const { data: existing, error: listError } = await client
+    .from("product_addons")
+    .select("id")
+    .eq("product_id", productId)
+    .eq("is_global", false);
+
+  if (listError) return { error: listError.message };
+
+  const toDelete = (existing ?? []).filter(
+    (row) => !keepIds.has(String(row.id))
+  );
+
+  if (toDelete.length > 0) {
+    const { error } = await client
+      .from("product_addons")
+      .delete()
+      .in(
+        "id",
+        toDelete.map((r) => String(r.id))
+      );
+    if (error) return { error: error.message };
+  }
+
+  for (let i = 0; i < sinkers.length; i++) {
+    const addon = sinkers[i];
+    const row = {
+      id: isUuid(addon.id) ? addon.id : randomUUID(),
+      product_id: productId,
+      name: addon.name.trim(),
+      description: addon.description?.trim() || null,
+      price: addon.price,
+      is_available: addon.is_available,
+      is_global: false,
+      sort_order: addon.sort_order ?? i,
+    };
+
+    const { error } = await client.from("product_addons").upsert(row, {
+      onConflict: "id",
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+  }
+
+  return {};
+}
+
 export async function fetchCatalogFromSupabase() {
   if (!isSupabaseConfigured()) return null;
   const client = await createServerClient();
   if (!client) return null;
 
-  const [catsRes, prodsRes, invRes, recipesRes] = await Promise.all([
+  const [catsRes, prodsRes, invRes, recipesRes, addonsRes] = await Promise.all([
     client.from("categories").select("*").order("sort_order"),
     client.from("products").select("*").order("sort_order"),
     client.from("inventory_items").select("*").order("name"),
     client.from("product_recipes").select("*"),
+    client.from("product_addons").select("*").order("sort_order"),
   ]);
 
   if (catsRes.error || prodsRes.error) {
@@ -105,9 +169,16 @@ export async function fetchCatalogFromSupabase() {
   const recipesByProduct = groupRecipes(
     (recipesRes.data ?? []) as DbRecipe[]
   );
+  const addonsByProduct = groupAddonsByProduct(
+    (addonsRes.data ?? []) as DbAddon[]
+  );
   const categories = ((catsRes.data ?? []) as DbCategory[]).map(mapCategory);
   const products = ((prodsRes.data ?? []) as DbProduct[]).map((p) =>
-    mapProduct(p, recipesByProduct.get(p.id) ?? [])
+    mapProduct(
+      p,
+      recipesByProduct.get(p.id) ?? [],
+      addonsByProduct.get(p.id) ?? []
+    )
   );
   const inventory = ((invRes.data ?? []) as DbInventory[]).map(mapInventory);
 
@@ -202,6 +273,13 @@ export async function upsertProductInSupabase(
     product.recipes
   );
   if (recipeResult.error) return { error: recipeResult.error };
+
+  const addonResult = await syncProductAddonsInSupabase(
+    client,
+    product.id,
+    product.addons
+  );
+  if (addonResult.error) return { error: addonResult.error };
 
   return { ok: true };
 }

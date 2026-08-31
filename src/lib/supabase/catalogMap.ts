@@ -2,6 +2,7 @@ import type {
   Category,
   InventoryItem,
   Product,
+  ProductAddon,
   ProductRecipe,
 } from "@/types";
 
@@ -59,6 +60,17 @@ type DbRecipe = {
   quantity_required: number | string;
 };
 
+type DbAddon = {
+  id: string;
+  product_id: string | null;
+  name: string;
+  description: string | null;
+  price: number | string;
+  is_available: boolean;
+  is_global: boolean;
+  sort_order: number;
+};
+
 export function mapCategory(row: DbCategory): Category {
   return {
     id: row.id,
@@ -75,7 +87,8 @@ export function mapCategory(row: DbCategory): Category {
 
 export function mapProduct(
   row: DbProduct,
-  recipes: ProductRecipe[] = []
+  recipes: ProductRecipe[] = [],
+  addons: ProductAddon[] = []
 ): Product {
   return {
     id: row.id,
@@ -97,6 +110,7 @@ export function mapProduct(
     created_at: row.created_at,
     updated_at: row.updated_at,
     recipes,
+    addons,
   };
 }
 
@@ -133,4 +147,35 @@ export function groupRecipes(
   return recipesByProduct;
 }
 
-export type { DbCategory, DbProduct, DbInventory, DbRecipe };
+export function mapAddon(row: DbAddon): ProductAddon {
+  return {
+    id: row.id,
+    product_id: row.product_id,
+    name: row.name,
+    description: row.description,
+    price: Number(row.price),
+    is_available: row.is_available,
+    is_global: row.is_global,
+    sort_order: row.sort_order,
+  };
+}
+
+/** Per-product sinkers only (excludes global addon pool). */
+export function groupAddonsByProduct(
+  rows: DbAddon[]
+): Map<string, ProductAddon[]> {
+  const byProduct = new Map<string, ProductAddon[]>();
+  for (const row of rows) {
+    if (!row.product_id || row.is_global) continue;
+    const list = byProduct.get(row.product_id) ?? [];
+    list.push(mapAddon(row));
+    byProduct.set(row.product_id, list);
+  }
+  for (const [productId, list] of byProduct) {
+    list.sort((a, b) => a.sort_order - b.sort_order);
+    byProduct.set(productId, list);
+  }
+  return byProduct;
+}
+
+export type { DbCategory, DbProduct, DbInventory, DbRecipe, DbAddon };

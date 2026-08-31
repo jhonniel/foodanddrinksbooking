@@ -1,7 +1,7 @@
 import { useDataStore } from "@/stores/data";
 import { isProductOrderable } from "@/lib/inventory/availability";
 import type { Category, Product, ProductAddon, Promotion } from "@/types";
-import { isPromotionKind } from "@/lib/vouchers/promoKind";
+import { isHomePromotionVisible } from "@/lib/vouchers/promotionValidity";
 
 function getState() {
   return useDataStore.getState();
@@ -13,6 +13,12 @@ export function selectCategories(): Category[] {
     .sort((a, b) => a.sort_order - b.sort_order);
 }
 
+function productSinkers(product: Product): ProductAddon[] {
+  return (product.addons ?? []).filter(
+    (a) => !a.is_global && a.is_available
+  );
+}
+
 export function selectProducts(filters?: {
   categoryId?: string;
   categorySlug?: string;
@@ -22,7 +28,7 @@ export function selectProducts(filters?: {
   availableOnly?: boolean;
   sort?: "price_asc" | "price_desc" | "rating" | "popular" | "newest";
 }): Product[] {
-  const { products, categories, addons, inventory } = getState();
+  const { products, categories, inventory } = getState();
   let list = [...products];
 
   if (filters?.availableOnly !== false) {
@@ -67,7 +73,7 @@ export function selectProducts(filters?: {
   return list.map((p) => ({
     ...p,
     category: categories.find((c) => c.id === p.category_id),
-    addons: p.addons?.length ? p.addons : addons,
+    addons: productSinkers(p),
     options: p.options,
   }));
 }
@@ -93,24 +99,24 @@ export async function getProducts(filters?: {
 }
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
-  const { products, categories, addons } = getState();
+  const { products, categories } = getState();
   const product = products.find((p) => p.slug === slug);
   if (!product) return null;
   return {
     ...product,
     category: categories.find((c) => c.id === product.category_id),
-    addons: product.addons?.length ? product.addons : addons,
+    addons: productSinkers(product),
   };
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const { products, categories, addons } = getState();
+  const { products, categories } = getState();
   const product = products.find((p) => p.id === id);
   if (!product) return null;
   return {
     ...product,
     category: categories.find((c) => c.id === product.category_id),
-    addons: product.addons?.length ? product.addons : addons,
+    addons: productSinkers(product),
   };
 }
 
@@ -119,9 +125,7 @@ export async function getAddons(): Promise<ProductAddon[]> {
 }
 
 export async function getPromotions(): Promise<Promotion[]> {
-  return getState().promotions.filter(
-    (p) => p.is_active && isPromotionKind(p)
-  );
+  return getState().promotions.filter((p) => isHomePromotionVisible(p));
 }
 
 export async function validatePromoCode(

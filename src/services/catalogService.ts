@@ -76,6 +76,22 @@ export async function syncProduct(product: Product): Promise<{
     }))
     .filter((r) => isUuid(r.id));
 
+  const addons = (product.addons ?? [])
+    .filter((a) => a.name.trim())
+    .map((a, index) => ({
+      ...a,
+      id:
+        isUuid(a.id) && a.id
+          ? a.id
+          : typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : a.id,
+      product_id: product.id,
+      is_global: false,
+      sort_order: a.sort_order ?? index,
+    }))
+    .filter((a) => isUuid(a.id));
+
   const res = await fetch("/api/catalog/products", {
     method: "PUT",
     credentials: "include",
@@ -87,6 +103,7 @@ export async function syncProduct(product: Product): Promise<{
         image_url: product.image_url ?? null,
         sku: product.sku ?? null,
         recipes,
+        addons,
       },
     }),
   });

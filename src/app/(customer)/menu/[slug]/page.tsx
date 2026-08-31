@@ -264,7 +264,7 @@ export default function ProductDetailPage() {
 
         {product.addons && product.addons.length > 0 && (
           <div>
-            <h3 className="mb-3 text-sm font-semibold text-navy">Add-ons</h3>
+            <h3 className="mb-3 text-sm font-semibold text-navy">Sinkers</h3>
             <div className="space-y-3 rounded-2xl bg-white p-4 shadow-card">
               {product.addons.map((addon) => (
                 <div key={addon.id} className="flex items-center gap-3">
@@ -280,11 +280,16 @@ export default function ProductDetailPage() {
                     className="flex flex-1 cursor-pointer items-center justify-between text-sm"
                   >
                     <span className="font-medium text-navy">{addon.name}</span>
-                    <span className="text-green">+{formatCurrency(addon.price)}</span>
+                    <span className="text-green">
+                      +{formatCurrency(addon.price)}
+                    </span>
                   </Label>
                 </div>
               ))}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Pick any sinkers you want — you can choose more than one.
+            </p>
           </div>
         )}
 

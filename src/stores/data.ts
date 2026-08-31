@@ -265,6 +265,16 @@ interface DataState {
     productId: string,
     recipes: { inventoryItemId: string; quantityRequired: number }[]
   ) => void;
+  setProductAddons: (
+    productId: string,
+    addons: {
+      id?: string;
+      name: string;
+      price: number;
+      isAvailable?: boolean;
+      sortOrder?: number;
+    }[]
+  ) => void;
 
   addCategory: (input: CreateCategoryInput) => Category;
   updateCategory: (id: string, updates: Partial<Category>) => void;
@@ -418,7 +428,7 @@ export const useDataStore = create<DataState>()((set, get) => ({
           created_at: now,
           updated_at: now,
           options: defaultOptions(id),
-          addons: get().addons,
+          addons: [],
           recipes,
         };
         set((s) => ({ products: [product, ...s.products] }));
@@ -462,6 +472,43 @@ export const useDataStore = create<DataState>()((set, get) => ({
                     product_id: productId,
                     inventory_item_id: r.inventoryItemId,
                     quantity_required: r.quantityRequired,
+                  };
+                }),
+              updated_at: new Date().toISOString(),
+            };
+          }),
+        })),
+
+      setProductAddons: (productId, addons) =>
+        set((s) => ({
+          products: s.products.map((p) => {
+            if (p.id !== productId) return p;
+            const existingById = new Map((p.addons ?? []).map((a) => [a.id, a]));
+            return {
+              ...p,
+              addons: addons
+                .filter((a) => a.name.trim())
+                .map((a, index) => {
+                  const existing = a.id ? existingById.get(a.id) : undefined;
+                  const id =
+                    existing?.id ??
+                    (a.id &&
+                    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                      a.id
+                    )
+                      ? a.id
+                      : typeof crypto !== "undefined" && "randomUUID" in crypto
+                        ? crypto.randomUUID()
+                        : `sinker-${productId}-${index}`);
+                  return {
+                    id,
+                    product_id: productId,
+                    name: a.name.trim(),
+                    description: existing?.description ?? null,
+                    price: a.price,
+                    is_available: a.isAvailable ?? true,
+                    is_global: false,
+                    sort_order: a.sortOrder ?? index,
                   };
                 }),
               updated_at: new Date().toISOString(),

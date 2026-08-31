@@ -42,6 +42,20 @@ const productSchema = z.object({
         })
       )
       .optional(),
+    addons: z
+      .array(
+        z.object({
+          id: z.string().uuid().optional(),
+          product_id: z.string().uuid().nullable().optional(),
+          name: z.string().min(1),
+          description: z.string().nullable().optional(),
+          price: z.number().min(0),
+          is_available: z.boolean(),
+          is_global: z.boolean().optional(),
+          sort_order: z.number().optional(),
+        })
+      )
+      .optional(),
   }),
 });
 
@@ -71,6 +85,16 @@ export async function PUT(request: Request) {
       product_id: r.product_id,
       inventory_item_id: r.inventory_item_id,
       quantity_required: r.quantity_required,
+    })),
+    addons: parsed.data.product.addons?.map((a, index) => ({
+      id: a.id ?? randomUUID(),
+      product_id: parsed.data.product.id,
+      name: a.name,
+      description: a.description ?? null,
+      price: a.price,
+      is_available: a.is_available,
+      is_global: false,
+      sort_order: a.sort_order ?? index,
     })),
   });
   if ("error" in result) return jsonError(result.error, 502);

@@ -1,13 +1,27 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { normalizeUsageLimit } from "@/lib/vouchers/usageLimit";
-import { normalizePromoKind, isVoucherKind } from "@/lib/vouchers/promoKind";
+import {
+  normalizePromoKind,
+  isPromotionKind,
+  isVoucherKind,
+} from "@/lib/vouchers/promoKind";
 import {
   isClaimRedemption,
   isManualRedemption,
   normalizeRedemptionMode,
   requiresVoucherWallet,
 } from "@/lib/vouchers/redemptionMode";
+import {
+  isPromotionCurrentlyValid,
+  isPromotionVisibleToCustomers,
+} from "@/lib/vouchers/promotionValidity";
 import type { PromoKind, Promotion, PromotionType, VoucherClaim, VoucherRedemptionMode } from "@/types";
+
+export {
+  isPromotionCurrentlyValid,
+  isPromotionVisibleToCustomers,
+  isHomePromotionVisible,
+} from "@/lib/vouchers/promotionValidity";
 
 const CATCH_UP_SQL = "supabase/catch-up-007-011.sql";
 
@@ -55,33 +69,6 @@ export function mapPromotion(row: Record<string, unknown>): Promotion {
   };
 }
 
-export function isPromotionCurrentlyValid(
-  promo: Promotion,
-  now = new Date()
-): { ok: true } | { ok: false; error: string } {
-  if (!promo.is_active) {
-    return { ok: false, error: "This voucher is no longer active." };
-  }
-  if (!promo.promo_code) {
-    return { ok: false, error: "Invalid voucher code." };
-  }
-  const start = new Date(promo.starts_at);
-  if (Number.isFinite(start.getTime()) && now < start) {
-    return { ok: false, error: "This voucher is not available yet." };
-  }
-  // null ends_at = never expires
-  if (promo.ends_at) {
-    const end = new Date(promo.ends_at);
-    if (Number.isFinite(end.getTime()) && now > end) {
-      return { ok: false, error: "This voucher has expired." };
-    }
-  }
-  if (promo.usage_limit != null && promo.usage_count >= promo.usage_limit) {
-    return { ok: false, error: "This voucher has reached its redeem limit." };
-  }
-  return { ok: true };
-}
-
 export function computePromoDiscount(
   promo: Promotion,
   subtotal: number
@@ -108,6 +95,14 @@ export async function listPromotionsFromSupabase(): Promise<Promotion[]> {
     .order("created_at", { ascending: false });
   if (error || !data) return [];
   return data.map((row) => mapPromotion(row as Record<string, unknown>));
+}
+
+/** Home-page promotions only — active, in-date, kind = PROMOTION. */
+export async function listCustomerPromotionsFromSupabase(): Promise<
+  Promotion[]
+> {
+  const all = await listPromotionsFromSupabase();
+  return all.filter((p) => isHomePromotionVisible(p));
 }
 
 export async function findPromotionByCode(
@@ -395,15 +390,20 @@ export async function listClaimableVouchersForCustomer(
         promotion: promoRow ? mapPromotion(promoRow) : undefined,
       };
     })
-    .filter((c) => c.promotion && isVoucherKind(c.promotion));
+    .filter(
+      (c) =>
+        c.promotion &&
+        isVoucherKind(c.promotion) &&
+        isPromotionVisibleToCustomers(c.promotion)
+    );
 
   const available = (promos ?? [])
     .map((row) => mapPromotion(row as Record<string, unknown>))
     .filter((p) => {
       if (!isVoucherKind(p)) return false;
+      if (!isPromotionVisibleToCustomers(p)) return false;
       if (!isClaimRedemption(p)) return false;
       if (claimedIds.has(p.id)) return false;
-      if (p.usage_limit != null && p.usage_count >= p.usage_limit) return false;
       return true;
     });
 
