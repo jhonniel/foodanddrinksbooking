@@ -1,6 +1,10 @@
 import { useDataStore } from "@/stores/data";
-import type { InventoryItem, OrderItem, Product } from "@/types";
+import type { InventoryItem, Product } from "@/types";
 import { getProductStockStatus } from "@/lib/inventory/availability";
+import {
+  computeInventoryTotalsForOrder,
+  type OrderLineForInventory,
+} from "@/lib/inventory/mixDeduction";
 import { syncProduct } from "@/services/catalogService";
 
 function isUuid(id: string) {
@@ -73,7 +77,7 @@ export async function applyInventoryAvailabilityRules(options?: {
  */
 export async function deductInventoryForOrder(
   orderId: string,
-  items: Pick<OrderItem, "product_id" | "quantity">[]
+  items: OrderLineForInventory[]
 ): Promise<{
   success: boolean;
   alreadyDeducted: boolean;
@@ -85,21 +89,11 @@ export async function deductInventoryForOrder(
     return { success: true, alreadyDeducted: true, deductions: [] };
   }
 
-  const totals = new Map<string, number>();
-
-  for (const line of items) {
-    const product = store.products.find((p) => p.id === line.product_id);
-    const recipes = product?.recipes ?? [];
-    const qty = Math.max(1, line.quantity || 1);
-
-    for (const recipe of recipes) {
-      const amount = recipe.quantity_required * qty;
-      totals.set(
-        recipe.inventory_item_id,
-        (totals.get(recipe.inventory_item_id) ?? 0) + amount
-      );
-    }
-  }
+  const totals = computeInventoryTotalsForOrder(
+    items,
+    store.products,
+    store.inventory
+  );
 
   const deductions: {
     inventoryItemId: string;

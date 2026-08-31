@@ -92,5 +92,9 @@ export function orderItemToCartItem(item: OrderItem): Omit<CartItem, "id"> {
       price: a.price,
       quantity: a.quantity,
     })),
+    mixComponents: (item.mix_components ?? []).map((m) => ({
+      productId: m.component_product_id,
+      name: m.component_name,
+    })),
   };
 }

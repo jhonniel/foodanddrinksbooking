@@ -437,6 +437,9 @@ export const useDataStore = create<DataState>()((set, get) => ({
           sort_order: 0,
           created_at: now,
           updated_at: now,
+          allows_mix_match: false,
+          mix_max_flavors: 2,
+          mix_candidate_ids: [],
           options: defaultOptions(id),
           addons: [],
           recipes,
@@ -611,6 +614,9 @@ export const useDataStore = create<DataState>()((set, get) => ({
           is_active: true,
           created_at: now,
           updated_at: now,
+          allows_mix_match: false,
+          mix_max_flavors: 2,
+          mix_candidate_ids: [],
         };
         set((s) => ({ categories: [...s.categories, category] }));
         return category;

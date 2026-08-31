@@ -118,6 +118,11 @@ export function ProductCard({
           ) : null}
           <h3 className="line-clamp-1 text-sm font-semibold text-navy">
             {product.name}
+            {product.allows_mix_match ? (
+              <span className="ml-1.5 inline-flex rounded-full bg-sky/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky">
+                Mix
+              </span>
+            ) : null}
           </h3>
           {product.description && (
             <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">

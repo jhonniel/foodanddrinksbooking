@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Minus, Plus, Star } from "lucide-react";
 import { toast } from "sonner";
 import { getProductBySlug } from "@/services/productService";
+import { resolveMixPickerOptions } from "@/lib/catalog/mixMatch";
 import { isProductOrderable } from "@/lib/inventory/availability";
 import {
   getRemainingPurchasable,
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils/format";
 import type {
   CartItemAddon,
+  CartItemMixComponent,
   CartItemOption,
   Product,
   ProductAddon,
@@ -74,12 +76,14 @@ export default function ProductDetailPage() {
   const addItem = useCartStore((s) => s.addItem);
   const cartItems = useCartStore((s) => s.items);
   const inventory = useDataStore((s) => s.inventory);
+  const allProducts = useDataStore((s) => s.products);
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [selectedAddons, setSelectedAddons] = useState<Record<string, number>>({});
+  const [mixSlotProductIds, setMixSlotProductIds] = useState<string[]>([]);
 
   useEffect(() => {
     getProductBySlug(slug).then((p) => {
@@ -93,6 +97,7 @@ export default function ProductDetailPage() {
         });
         setSelectedOptions(defaults);
       }
+      setMixSlotProductIds([]);
       setLoading(false);
     });
   }, [slug]);
@@ -129,6 +134,33 @@ export default function ProductDetailPage() {
         };
       });
   }, [product, selectedAddons]);
+
+  const mixPickerOptions = useMemo(() => {
+    if (!product?.allows_mix_match) return [];
+    return resolveMixPickerOptions(product, allProducts);
+  }, [product, allProducts]);
+
+  const additionalMixCount = Math.max(0, (product?.mix_max_flavors ?? 2) - 1);
+
+  const mixComponents: CartItemMixComponent[] = useMemo(() => {
+    if (!product?.allows_mix_match || mixSlotProductIds.length === 0) {
+      return [];
+    }
+    const base: CartItemMixComponent = {
+      productId: product.id,
+      name: product.name,
+    };
+    const extras = mixSlotProductIds
+      .filter(Boolean)
+      .map((id) => {
+        const flavor = mixPickerOptions.find((p) => p.id === id);
+        return flavor
+          ? { productId: flavor.id, name: flavor.name }
+          : null;
+      })
+      .filter((m): m is CartItemMixComponent => m != null);
+    return [base, ...extras];
+  }, [product, mixSlotProductIds, mixPickerOptions]);
 
   const unitPrice = useMemo(() => {
     if (!product) return 0;
@@ -169,8 +201,29 @@ export default function ProductDetailPage() {
     });
   };
 
+  const toggleMixFlavor = (flavorId: string, checked: boolean) => {
+    if (!product) return;
+    const maxAdditional = Math.max(0, (product.mix_max_flavors ?? 2) - 1);
+    setMixSlotProductIds((prev) => {
+      if (checked) {
+        if (prev.includes(flavorId)) return prev;
+        if (prev.length >= maxAdditional) {
+          toast.error(
+            maxAdditional === 1
+              ? `You can only pick 1 more flavor to mix with ${product.name}.`
+              : `You can only pick ${maxAdditional} more flavors to mix with ${product.name}.`
+          );
+          return prev;
+        }
+        return [...prev, flavorId];
+      }
+      return prev.filter((id) => id !== flavorId);
+    });
+  };
+
   const handleAddToCart = () => {
     if (!product || !orderable) return;
+
     const added = addItem(
       {
         productId: product.id,
@@ -187,6 +240,7 @@ export default function ProductDetailPage() {
           price: a.price ?? 0,
           quantity: a.quantity ?? 1,
         })),
+        mixComponents: mixComponents.length > 0 ? mixComponents : undefined,
       },
       product
     );
@@ -251,6 +305,59 @@ export default function ProductDetailPage() {
       </div>
 
       <div className="mt-6 space-y-6">
+        {product.allows_mix_match && mixPickerOptions.length > 0 ? (
+          <div>
+            <h3 className="mb-1 text-sm font-semibold text-navy">
+              Mix flavors{" "}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </h3>
+            <p className="mb-3 text-xs text-muted-foreground">
+              {additionalMixCount === 1
+                ? `Add up to 1 flavor to mix with ${product.name}, or skip for a single flavor`
+                : `Add up to ${additionalMixCount} flavors to mix with ${product.name}, or skip for a single flavor`}
+            </p>
+            <div className="rounded-2xl bg-white p-4 shadow-card">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                {mixPickerOptions.map((flavor) => {
+                  const checked = mixSlotProductIds.includes(flavor.id);
+                  const maxReached =
+                    mixSlotProductIds.length >= additionalMixCount && !checked;
+                  return (
+                    <div
+                      key={flavor.id}
+                      className="flex items-start gap-2.5"
+                    >
+                      <Checkbox
+                        id={`mix-${flavor.id}`}
+                        checked={checked}
+                        disabled={maxReached}
+                        onCheckedChange={(v) =>
+                          toggleMixFlavor(flavor.id, v === true)
+                        }
+                        className="mt-0.5"
+                      />
+                      <Label
+                        htmlFor={`mix-${flavor.id}`}
+                        className={cn(
+                          "cursor-pointer text-sm font-medium leading-snug text-navy",
+                          maxReached && "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        {flavor.name}
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                {mixSlotProductIds.length === 0
+                  ? `No mix — ordering ${product.name} only`
+                  : `${mixSlotProductIds.length} / ${additionalMixCount} mix flavor${additionalMixCount === 1 ? "" : "s"} · includes ${product.name}`}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         {product.options?.map((opt) => (
           <OptionSelector
             key={opt.id}

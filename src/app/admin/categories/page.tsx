@@ -25,6 +25,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogScrollBody,
@@ -85,6 +91,9 @@ export default function AdminCategoriesPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [sinkers, setSinkers] = useState<SinkerDraft[]>([]);
+  const [allowsMixMatch, setAllowsMixMatch] = useState(false);
+  const [mixMaxFlavors, setMixMaxFlavors] = useState(2);
+  const [mixCandidateIds, setMixCandidateIds] = useState<string[]>([]);
 
   const sorted = useMemo(
     () => [...categories].sort((a, b) => a.sort_order - b.sort_order),
@@ -98,6 +107,9 @@ export default function AdminCategoriesPage() {
     setImageUrl("");
     setImageFile(null);
     setSinkers([]);
+    setAllowsMixMatch(false);
+    setMixMaxFlavors(2);
+    setMixCandidateIds([]);
   };
 
   const handleOpenChange = (open: boolean) => {
@@ -126,6 +138,9 @@ export default function AdminCategoriesPage() {
           isAvailable: a.is_available,
         }))
     );
+    setAllowsMixMatch(Boolean(category.allows_mix_match));
+    setMixMaxFlavors(category.mix_max_flavors ?? 2);
+    setMixCandidateIds(category.mix_candidate_ids ?? []);
     setDialogOpen(true);
   };
 
@@ -163,6 +178,14 @@ export default function AdminCategoriesPage() {
     return parsed;
   };
 
+  const categoryProducts = useMemo(() => {
+    const catId = editing?.id ?? null;
+    if (!catId) return [];
+    return products
+      .filter((p) => p.category_id === catId && p.is_available)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, editing?.id]);
+
   const persistCategory = async (categoryId: string, label: string) => {
     const latest = useDataStore
       .getState()
@@ -199,6 +222,13 @@ export default function AdminCategoriesPage() {
     const parsedSinkers = parseSinkers();
     if (parsedSinkers === null) return;
 
+    if (allowsMixMatch && mixCandidateIds.length === 0) {
+      toast.error(
+        "Select at least one product flavor that can be mixed in this category."
+      );
+      return;
+    }
+
     setSaving(true);
     try {
       let nextImageUrl = imageUrl.trim() || undefined;
@@ -217,6 +247,9 @@ export default function AdminCategoriesPage() {
           name: trimmedName,
           slug: slugify(trimmedName),
           description: description.trim() || null,
+          allows_mix_match: allowsMixMatch,
+          mix_max_flavors: mixMaxFlavors,
+          mix_candidate_ids: allowsMixMatch ? mixCandidateIds : [],
           ...(nextImageUrl ? { image_url: nextImageUrl } : {}),
         });
         setCategorySinkers(editing.id, parsedSinkers);
@@ -231,6 +264,12 @@ export default function AdminCategoriesPage() {
         });
 
         setCategorySinkers(created.id, parsedSinkers);
+
+        updateCategory(created.id, {
+          allows_mix_match: allowsMixMatch,
+          mix_max_flavors: mixMaxFlavors,
+          mix_candidate_ids: allowsMixMatch ? mixCandidateIds : [],
+        });
 
         if (imageFile) {
           const uploaded = await uploadCategoryImage(imageFile, created.id);
@@ -444,6 +483,86 @@ export default function AdminCategoriesPage() {
                 )}
               </div>
 
+              <div className="space-y-3 rounded-xl border border-sky/20 bg-sky/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-navy">
+                      Mix &amp; Match
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Allow all drinks in this category to combine flavors
+                    </p>
+                  </div>
+                  <Switch
+                    checked={allowsMixMatch}
+                    onCheckedChange={setAllowsMixMatch}
+                  />
+                </div>
+
+                {allowsMixMatch ? (
+                  <div className="space-y-3 border-t border-sky/10 pt-3">
+                    <div>
+                      <Label>Flavor slots per drink</Label>
+                      <Select
+                        value={String(mixMaxFlavors)}
+                        onValueChange={(v) => v && setMixMaxFlavors(Number(v))}
+                      >
+                        <SelectTrigger className="mt-1 w-full max-w-[10rem]">
+                          <span>{mixMaxFlavors} flavors</span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">2 flavors</SelectItem>
+                          <SelectItem value="3">3 flavors</SelectItem>
+                          <SelectItem value="4">4 flavors</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label className="mb-2 block">Mixable products</Label>
+                      {!editing ? (
+                        <p className="text-xs text-muted-foreground">
+                          Save the category first, then edit it to pick which
+                          products can be mixed.
+                        </p>
+                      ) : categoryProducts.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Add products to this category, then select which
+                          flavors customers can combine.
+                        </p>
+                      ) : (
+                        <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg bg-white p-2">
+                          {categoryProducts.map((product) => (
+                            <div
+                              key={product.id}
+                              className="flex items-center gap-2"
+                            >
+                              <Checkbox
+                                id={`cat-mix-${product.id}`}
+                                checked={mixCandidateIds.includes(product.id)}
+                                onCheckedChange={(checked) => {
+                                  setMixCandidateIds((prev) =>
+                                    checked === true
+                                      ? [...prev, product.id]
+                                      : prev.filter((id) => id !== product.id)
+                                  );
+                                }}
+                              />
+                              <Label
+                                htmlFor={`cat-mix-${product.id}`}
+                                className="cursor-pointer text-sm font-normal"
+                              >
+                                {product.name}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="space-y-2">
                 <Label>Category image</Label>
                 {previewUrl && (
@@ -522,6 +641,7 @@ export default function AdminCategoriesPage() {
                       category.sinkers!.length === 1 ? "" : "s"
                     }`
                   : ""}
+                {category.allows_mix_match ? " · Mix & Match" : ""}
               </p>
             </div>
             <ReorderButtons

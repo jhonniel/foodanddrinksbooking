@@ -318,6 +318,14 @@ export default function OrderDetailPage() {
                       {item.options.map((o) => o.value_name).join(" · ")}
                     </p>
                   )}
+                  {item.mix_components && item.mix_components.length > 0 && (
+                    <p className="text-xs text-sky">
+                      Mix:{" "}
+                      {item.mix_components
+                        .map((m) => m.component_name)
+                        .join(" · ")}
+                    </p>
+                  )}
                 </div>
                 <p className="shrink-0 font-medium text-navy">
                   {formatCurrency(item.total_price)}

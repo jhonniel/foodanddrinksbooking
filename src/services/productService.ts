@@ -1,4 +1,5 @@
 import { mergeSinkersForProduct } from "@/lib/catalog/sinkers";
+import { mergeMixSettingsForProduct } from "@/lib/catalog/mixMatch";
 import { useDataStore } from "@/stores/data";
 import { isProductOrderable } from "@/lib/inventory/availability";
 import type { Category, Product, ProductAddon, Promotion } from "@/types";
@@ -75,12 +76,20 @@ export function selectProducts(filters?: {
       list.sort((a, b) => b.review_count - a.review_count);
   }
 
-  return list.map((p) => ({
-    ...p,
-    category: categories.find((c) => c.id === p.category_id),
-    addons: productSinkers(p),
-    options: p.options,
-  }));
+  return list.map(enrichProduct);
+}
+
+function enrichProduct(product: Product): Product {
+  const { categories } = getState();
+  const category = categories.find((c) => c.id === product.category_id);
+  const mix = mergeMixSettingsForProduct(product, category);
+  return {
+    ...product,
+    ...mix,
+    category,
+    addons: productSinkers(product),
+    options: product.options,
+  };
 }
 
 export async function getCategories(): Promise<Category[]> {
@@ -104,25 +113,17 @@ export async function getProducts(filters?: {
 }
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
-  const { products, categories } = getState();
+  const { products } = getState();
   const product = products.find((p) => p.slug === slug);
   if (!product) return null;
-  return {
-    ...product,
-    category: categories.find((c) => c.id === product.category_id),
-    addons: productSinkers(product),
-  };
+  return enrichProduct(product);
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const { products, categories } = getState();
+  const { products } = getState();
   const product = products.find((p) => p.id === id);
   if (!product) return null;
-  return {
-    ...product,
-    category: categories.find((c) => c.id === product.category_id),
-    addons: productSinkers(product),
-  };
+  return enrichProduct(product);
 }
 
 export async function getAddons(): Promise<ProductAddon[]> {

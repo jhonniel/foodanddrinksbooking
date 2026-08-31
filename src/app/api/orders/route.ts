@@ -45,6 +45,13 @@ const cartAddonSchema = z
   })
   .passthrough();
 
+const cartMixComponentSchema = z
+  .object({
+    productId: z.string().min(1),
+    name: z.string().min(1),
+  })
+  .passthrough();
+
 const cartItemSchema = z
   .object({
     id: z.string().min(1),
@@ -57,6 +64,7 @@ const cartItemSchema = z
     quantity: posInt,
     options: z.array(cartOptionSchema).optional().default([]),
     addons: z.array(cartAddonSchema).optional().default([]),
+    mixComponents: z.array(cartMixComponentSchema).optional().default([]),
     specialInstructions: z.string().optional(),
   })
   .passthrough();
@@ -156,6 +164,10 @@ function toCartItems(
       name: a.name,
       price: a.price ?? 0,
       quantity: a.quantity ?? 1,
+    })),
+    mixComponents: (item.mixComponents ?? []).map((m) => ({
+      productId: m.productId,
+      name: m.name,
     })),
     specialInstructions: item.specialInstructions,
   }));

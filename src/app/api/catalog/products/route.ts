@@ -32,6 +32,9 @@ const productSchema = z.object({
     sort_order: z.number(),
     created_at: z.string(),
     updated_at: z.string(),
+    allows_mix_match: z.boolean().optional().default(false),
+    mix_max_flavors: z.coerce.number().int().min(2).max(4).optional().default(2),
+    mix_candidate_ids: z.array(z.string().uuid()).optional().default([]),
     recipes: z
       .array(
         z.object({

@@ -124,6 +124,9 @@ export default function AdminProductsPage() {
   const [saving, setSaving] = useState(false);
   const [isFeatured, setIsFeatured] = useState(false);
   const [isBestSeller, setIsBestSeller] = useState(false);
+  const [allowsMixMatch, setAllowsMixMatch] = useState(false);
+  const [mixMaxFlavors, setMixMaxFlavors] = useState(2);
+  const [mixCandidateIds, setMixCandidateIds] = useState<string[]>([]);
   const [recipes, setRecipes] = useState<RecipeDraft[]>([emptyRecipe()]);
   const [sinkers, setSinkers] = useState<SinkerDraft[]>([]);
 
@@ -175,6 +178,26 @@ export default function AdminProductsPage() {
       ) ?? []
     );
   }, [categories, categoryId]);
+
+  const mixablePeerProducts = useMemo(() => {
+    if (!categoryId) return [];
+    return products
+      .filter(
+        (p) =>
+          p.category_id === categoryId &&
+          p.id !== editProduct?.id &&
+          p.is_available
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, categoryId, editProduct?.id]);
+
+  const categoryMixEnabled = useMemo(
+    () =>
+      Boolean(
+        categories.find((c) => c.id === categoryId)?.allows_mix_match
+      ),
+    [categories, categoryId]
+  );
 
   const draftRecipeCost = useMemo(() => {
     const parsed = recipes
@@ -228,6 +251,9 @@ export default function AdminProductsPage() {
     setImageFile(null);
     setIsFeatured(false);
     setIsBestSeller(false);
+    setAllowsMixMatch(false);
+    setMixMaxFlavors(2);
+    setMixCandidateIds([]);
     setRecipes([emptyRecipe()]);
     setSinkers([]);
     setEditProduct(null);
@@ -251,6 +277,9 @@ export default function AdminProductsPage() {
     setImageFile(null);
     setIsFeatured(product.is_featured);
     setIsBestSeller(product.is_best_seller);
+    setAllowsMixMatch(Boolean(product.allows_mix_match));
+    setMixMaxFlavors(product.mix_max_flavors ?? 2);
+    setMixCandidateIds(product.mix_candidate_ids ?? []);
     setRecipes(
       product.recipes && product.recipes.length > 0
         ? dedupeRecipeDrafts(
@@ -406,6 +435,12 @@ export default function AdminProductsPage() {
       toast.error("Add at least one ingredient so stock can be deducted.");
       return;
     }
+    if (allowsMixMatch && mixCandidateIds.length === 0) {
+      toast.error(
+        "Select at least one other flavor customers can mix with this product."
+      );
+      return;
+    }
 
     setSaving(true);
     try {
@@ -429,6 +464,9 @@ export default function AdminProductsPage() {
           category_id: categoryId,
           is_featured: isFeatured,
           is_best_seller: isBestSeller,
+          allows_mix_match: allowsMixMatch,
+          mix_max_flavors: mixMaxFlavors,
+          mix_candidate_ids: allowsMixMatch ? mixCandidateIds : [],
           ...(nextImageUrl ? { image_url: nextImageUrl } : {}),
         });
         setProductRecipes(editProduct.id, parsedRecipes);
@@ -459,6 +497,12 @@ export default function AdminProductsPage() {
       if (parsedSinkers.length > 0) {
         setProductAddons(created.id, parsedSinkers);
       }
+
+      updateProduct(created.id, {
+        allows_mix_match: allowsMixMatch,
+        mix_max_flavors: mixMaxFlavors,
+        mix_candidate_ids: allowsMixMatch ? mixCandidateIds : [],
+      });
 
       if (imageFile) {
         const uploaded = await uploadProductImage(imageFile, created.id);
@@ -734,6 +778,90 @@ export default function AdminProductsPage() {
                     Best Seller
                   </Label>
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-sky/20 bg-sky/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-navy">
+                      Mix &amp; Match
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Let customers combine this flavor with others in one drink
+                    </p>
+                  </div>
+                  <Switch
+                    checked={allowsMixMatch}
+                    onCheckedChange={setAllowsMixMatch}
+                  />
+                </div>
+
+                {categoryMixEnabled && !allowsMixMatch ? (
+                  <p className="text-xs text-sky">
+                    This category already has Mix &amp; Match enabled — all
+                    drinks inherit it. Turn this on to override per product.
+                  </p>
+                ) : null}
+
+                {allowsMixMatch ? (
+                  <div className="space-y-3 border-t border-sky/10 pt-3">
+                    <div>
+                      <Label>Flavor slots per drink</Label>
+                      <Select
+                        value={String(mixMaxFlavors)}
+                        onValueChange={(v) => v && setMixMaxFlavors(Number(v))}
+                      >
+                        <SelectTrigger className="mt-1 w-full max-w-[10rem]">
+                          <span>{mixMaxFlavors} flavors</span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">2 flavors</SelectItem>
+                          <SelectItem value="3">3 flavors</SelectItem>
+                          <SelectItem value="4">4 flavors</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label className="mb-2 block">
+                        Mixable flavors (same category)
+                      </Label>
+                      {mixablePeerProducts.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Add other products in this category first, then select
+                          which flavors can be mixed.
+                        </p>
+                      ) : (
+                        <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg bg-white p-2">
+                          {mixablePeerProducts.map((peer) => (
+                            <div
+                              key={peer.id}
+                              className="flex items-center gap-2"
+                            >
+                              <Checkbox
+                                id={`mix-${peer.id}`}
+                                checked={mixCandidateIds.includes(peer.id)}
+                                onCheckedChange={(checked) => {
+                                  setMixCandidateIds((prev) =>
+                                    checked === true
+                                      ? [...prev, peer.id]
+                                      : prev.filter((id) => id !== peer.id)
+                                  );
+                                }}
+                              />
+                              <Label
+                                htmlFor={`mix-${peer.id}`}
+                                className="cursor-pointer text-sm font-normal"
+                              >
+                                {peer.name}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="space-y-3 rounded-xl border border-border p-3">
@@ -1020,7 +1148,16 @@ export default function AdminProductsPage() {
                         name={getCategoryName(product.category_id)}
                         className="mb-1.5"
                       />
-                      <h3 className="font-semibold text-navy">{product.name}</h3>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h3 className="font-semibold text-navy">{product.name}</h3>
+                        {(product.allows_mix_match ||
+                          categories.find((c) => c.id === product.category_id)
+                            ?.allows_mix_match) ? (
+                          <Badge className="bg-sky/10 text-[10px] text-sky hover:bg-sky/10">
+                            Mix
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-green">

@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { Minus, Pencil, Plus, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { CartItemEditDialog } from "@/components/customer/CartItemEditDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,9 +22,9 @@ import { useDataStore } from "@/stores/data";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { PURCHASE_SOON_MESSAGE } from "@/lib/settings/types";
 import {
-  formatDeliveryRateLabel,
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
+import type { CartItem } from "@/types";
 
 export default function CartPage() {
   const searchParams = useSearchParams();
@@ -54,6 +55,7 @@ export default function CartPage() {
 
   const [codeInput, setCodeInput] = useState(promoCode ?? "");
   const [applying, setApplying] = useState(false);
+  const [editingItem, setEditingItem] = useState<CartItem | null>(null);
 
   useEffect(() => {
     const fromUrl = searchParams.get("code")?.trim();
@@ -131,17 +133,27 @@ export default function CartPage() {
                 <div>
                   <h3 className="font-semibold text-navy">{item.productName}</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {formatCartOptions(item.options, item.addons)}
+                    {formatCartOptions(item.options, item.addons, item.mixComponents)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  aria-label={`Remove ${item.productName}`}
-                  onClick={() => removeItem(item.id)}
-                  className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-500"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    aria-label={`Edit ${item.productName}`}
+                    onClick={() => setEditingItem(item)}
+                    className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-navy"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${item.productName}`}
+                    onClick={() => removeItem(item.id)}
+                    className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-500"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="mt-auto flex items-center justify-between pt-2">
                 <div className="inline-flex items-center gap-2 rounded-xl bg-muted px-1 py-0.5">
@@ -235,11 +247,6 @@ export default function CartPage() {
               )}
             </span>
           </div>
-          {orderType === "DELIVERY" && deliveryFee > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {formatDeliveryRateLabel()}
-            </p>
-          )}
           {promoDiscount > 0 && (
             <div className="flex justify-between text-green">
               <span>Discount</span>
@@ -296,6 +303,14 @@ export default function CartPage() {
           </Link>
         )}
       </div>
+
+      <CartItemEditDialog
+        item={editingItem}
+        open={editingItem != null}
+        onOpenChange={(open) => {
+          if (!open) setEditingItem(null);
+        }}
+      />
     </div>
   );
 }

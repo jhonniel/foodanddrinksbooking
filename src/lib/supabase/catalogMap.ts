@@ -16,6 +16,15 @@ type DbCategory = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  allows_mix_match?: boolean | null;
+  mix_max_flavors?: number | null;
+};
+
+type DbCategoryMixCandidate = {
+  id: string;
+  category_id: string;
+  candidate_product_id: string;
+  sort_order: number;
 };
 
 type DbProduct = {
@@ -37,6 +46,15 @@ type DbProduct = {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  allows_mix_match?: boolean | null;
+  mix_max_flavors?: number | null;
+};
+
+type DbMixCandidate = {
+  id: string;
+  product_id: string;
+  candidate_product_id: string;
+  sort_order: number;
 };
 
 type DbInventory = {
@@ -74,7 +92,8 @@ type DbAddon = {
 
 export function mapCategory(
   row: DbCategory,
-  sinkers: ProductAddon[] = []
+  sinkers: ProductAddon[] = [],
+  mixCandidateIds: string[] = []
 ): Category {
   return {
     id: row.id,
@@ -86,6 +105,9 @@ export function mapCategory(
     is_active: row.is_active,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    allows_mix_match: Boolean(row.allows_mix_match),
+    mix_max_flavors: row.mix_max_flavors ?? 2,
+    mix_candidate_ids: mixCandidateIds,
     sinkers,
   };
 }
@@ -93,7 +115,8 @@ export function mapCategory(
 export function mapProduct(
   row: DbProduct,
   recipes: ProductRecipe[] = [],
-  addons: ProductAddon[] = []
+  addons: ProductAddon[] = [],
+  mixCandidateIds: string[] = []
 ): Product {
   return {
     id: row.id,
@@ -114,6 +137,9 @@ export function mapProduct(
     sort_order: row.sort_order,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    allows_mix_match: Boolean(row.allows_mix_match),
+    mix_max_flavors: row.mix_max_flavors ?? 2,
+    mix_candidate_ids: mixCandidateIds,
     recipes,
     addons,
   };
@@ -210,4 +236,48 @@ export function groupAddonsByCategory(
   return byCategory;
 }
 
-export type { DbCategory, DbProduct, DbInventory, DbRecipe, DbAddon };
+export function groupMixCandidates(
+  rows: DbMixCandidate[]
+): Map<string, string[]> {
+  const byProduct = new Map<string, string[]>();
+  for (const row of rows) {
+    const list = byProduct.get(row.product_id) ?? [];
+    list.push(row.candidate_product_id);
+    byProduct.set(row.product_id, list);
+  }
+  for (const [productId, list] of byProduct) {
+    byProduct.set(
+      productId,
+      [...list].sort((a, b) => a.localeCompare(b))
+    );
+  }
+  return byProduct;
+}
+
+export function groupCategoryMixCandidates(
+  rows: DbCategoryMixCandidate[]
+): Map<string, string[]> {
+  const byCategory = new Map<string, string[]>();
+  for (const row of rows) {
+    const list = byCategory.get(row.category_id) ?? [];
+    list.push(row.candidate_product_id);
+    byCategory.set(row.category_id, list);
+  }
+  for (const [categoryId, list] of byCategory) {
+    byCategory.set(
+      categoryId,
+      [...list].sort((a, b) => a.localeCompare(b))
+    );
+  }
+  return byCategory;
+}
+
+export type {
+  DbCategory,
+  DbProduct,
+  DbInventory,
+  DbRecipe,
+  DbAddon,
+  DbMixCandidate,
+  DbCategoryMixCandidate,
+};

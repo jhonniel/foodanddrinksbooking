@@ -114,6 +114,11 @@ export interface Category {
   updated_at: string;
   /** Default sinkers for all drinks in this category */
   sinkers?: ProductAddon[];
+  /** When true, all drinks in this category can mix flavors together */
+  allows_mix_match?: boolean;
+  mix_max_flavors?: number;
+  /** Product IDs in this category that customers can combine */
+  mix_candidate_ids?: string[];
 }
 
 export interface Product {
@@ -140,6 +145,12 @@ export interface Product {
   addons?: ProductAddon[];
   /** Inventory ingredients used per single drink */
   recipes?: ProductRecipe[];
+  /** When true, customer can combine multiple flavors in one drink */
+  allows_mix_match?: boolean;
+  /** How many flavor slots (2–4) */
+  mix_max_flavors?: number;
+  /** Other product IDs that can be mixed with this one */
+  mix_candidate_ids?: string[];
 }
 
 /** Links a product to inventory stock used when the order is completed */
@@ -283,6 +294,15 @@ export interface OrderItem {
   special_instructions: string | null;
   options?: OrderItemOption[];
   addons?: OrderItemAddon[];
+  mix_components?: OrderItemMixComponent[];
+}
+
+export interface OrderItemMixComponent {
+  id: string;
+  order_item_id: string;
+  component_product_id: string;
+  component_name: string;
+  slot_index: number;
 }
 
 export interface OrderItemOption {
@@ -471,6 +491,11 @@ export interface CartItemAddon {
   quantity: number;
 }
 
+export interface CartItemMixComponent {
+  productId: string;
+  name: string;
+}
+
 export interface CartItem {
   id: string;
   productId: string;
@@ -480,6 +505,8 @@ export interface CartItem {
   quantity: number;
   options: CartItemOption[];
   addons: CartItemAddon[];
+  /** Selected flavors when mix & match is enabled */
+  mixComponents?: CartItemMixComponent[];
   specialInstructions?: string;
 }
 

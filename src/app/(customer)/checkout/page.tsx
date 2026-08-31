@@ -28,7 +28,6 @@ import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
 import {
   calculateDeliveryFee,
-  formatDeliveryRateLabel,
   formatDistanceKm,
 } from "@/lib/delivery/pricing";
 import { SAMAL_SERVICE_MESSAGE } from "@/lib/delivery/samal";
@@ -694,7 +693,7 @@ export default function CheckoutPage() {
                       {item.quantity}x {item.productName}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {formatCartOptions(item.options, item.addons)}
+                      {formatCartOptions(item.options, item.addons, item.mixComponents)}
                     </p>
                   </div>
                   <p className="shrink-0 font-medium">
@@ -721,14 +720,6 @@ export default function CheckoutPage() {
                   {deliveryFee === 0 ? "Free" : formatCurrency(deliveryFee)}
                 </span>
               </div>
-              {orderType === "DELIVERY" && deliveryFee > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {formatDeliveryRateLabel(delivery)} ·{" "}
-                  {formatDistanceKm(deliveryQuote.distanceKm)}
-                  {deliveryQuote.breakdown.succeedingKm > 0 &&
-                    ` (+${deliveryQuote.breakdown.succeedingKm} km after first)`}
-                </p>
-              )}
               {promoDiscount > 0 && (
                 <div className="flex justify-between text-green">
                   <span>Promo ({promoCode})</span>

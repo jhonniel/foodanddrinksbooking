@@ -1,7 +1,7 @@
-import type { CartItem, CartItemAddon, CartItemOption, Product } from "@/types";
+import type { CartItem, CartItemAddon, CartItemMixComponent, CartItemOption, Product } from "@/types";
 
 export function cartItemSignature(
-  item: Pick<CartItem, "productId" | "options" | "addons">
+  item: Pick<CartItem, "productId" | "options" | "addons" | "mixComponents">
 ): string {
   const optionsKey = [...(item.options ?? [])]
     .sort((a, b) => a.optionId.localeCompare(b.optionId))
@@ -11,7 +11,11 @@ export function cartItemSignature(
     .sort((a, b) => a.addonId.localeCompare(b.addonId))
     .map((a) => `${a.addonId}:${a.quantity}`)
     .join("|");
-  return `${item.productId}::${optionsKey}::${addonsKey}`;
+  const mixKey = [...(item.mixComponents ?? [])]
+    .map((m) => m.productId)
+    .sort()
+    .join("|");
+  return `${item.productId}::${optionsKey}::${addonsKey}::${mixKey}`;
 }
 
 /** Merge separate lines that are the same product + options + add-ons. */

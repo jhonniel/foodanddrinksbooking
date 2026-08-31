@@ -77,6 +77,8 @@ type DbOrderRow = Record<string, unknown> & {
 function mapOrderItem(row: Record<string, unknown>): OrderItem {
   const options = (row.order_item_options as Array<Record<string, unknown>>) ?? [];
   const addons = (row.order_item_addons as Array<Record<string, unknown>>) ?? [];
+  const mixRows =
+    (row.order_item_mix_components as Array<Record<string, unknown>>) ?? [];
   return {
     id: String(row.id),
     order_id: String(row.order_id),
@@ -101,6 +103,15 @@ function mapOrderItem(row: Record<string, unknown>): OrderItem {
       price: Number(a.price),
       quantity: Number(a.quantity ?? 1),
     })),
+    mix_components: mixRows
+      .sort((a, b) => Number(a.slot_index ?? 0) - Number(b.slot_index ?? 0))
+      .map((m) => ({
+        id: String(m.id),
+        order_item_id: String(m.order_item_id ?? row.id),
+        component_product_id: String(m.component_product_id),
+        component_name: String(m.component_name),
+        slot_index: Number(m.slot_index ?? 0),
+      })),
   };
 }
 
@@ -221,7 +232,8 @@ const ORDER_SELECT = `
   order_items (
     *,
     order_item_options (*),
-    order_item_addons (*)
+    order_item_addons (*),
+    order_item_mix_components (*)
   ),
   delivery_orders (
     *,
@@ -589,6 +601,19 @@ export async function createOrderInSupabase(input: {
       );
       if (error) {
         console.error("[orders] addons insert failed:", error.message);
+      }
+    }
+    if (item.mixComponents?.length) {
+      const { error } = await client.from("order_item_mix_components").insert(
+        item.mixComponents.map((m, index) => ({
+          order_item_id: itemId,
+          component_product_id: m.productId,
+          component_name: m.name,
+          slot_index: index,
+        }))
+      );
+      if (error) {
+        console.error("[orders] mix components insert failed:", error.message);
       }
     }
   }

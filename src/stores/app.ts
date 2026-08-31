@@ -105,6 +105,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
             (order.items || []).map((i) => ({
               product_id: i.product_id,
               quantity: i.quantity,
+              mix_components: i.mix_components,
             }))
           );
         }
@@ -324,6 +325,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
             (order.items || []).map((i) => ({
               product_id: i.product_id,
               quantity: i.quantity,
+              mix_components: i.mix_components,
             }))
           );
         }
