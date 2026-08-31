@@ -380,3 +380,144 @@ export async function setDriverActiveInSupabase(
   }
   return { driver: refreshed };
 }
+
+export type UpdateDriverInput = {
+  fullName?: string;
+  phone?: string | null;
+  vehicleType?: string;
+  vehicleNumber?: string | null;
+  licenseNumber?: string | null;
+};
+
+export async function updateDriverInSupabase(
+  driverId: string,
+  input: UpdateDriverInput
+): Promise<{ driver?: Driver; error?: string }> {
+  const client = await getAdminClient();
+  if (!client) {
+    return {
+      error:
+        "Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it in .env.local / Vercel.",
+    };
+  }
+
+  const existing = await client
+    .from("drivers")
+    .select(DRIVER_COLUMNS)
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (existing.error || !existing.data) {
+    return { error: existing.error?.message || "Driver not found." };
+  }
+
+  const profileId = String(existing.data.profile_id);
+  const now = new Date().toISOString();
+
+  const driverPatch: Record<string, unknown> = { updated_at: now };
+  if (input.vehicleType !== undefined) {
+    driverPatch.vehicle_type = input.vehicleType;
+  }
+  if (input.vehicleNumber !== undefined) {
+    driverPatch.vehicle_number = input.vehicleNumber || null;
+  }
+  if (input.licenseNumber !== undefined) {
+    driverPatch.license_number = input.licenseNumber || null;
+  }
+
+  if (Object.keys(driverPatch).length > 1) {
+    const { error: driverError } = await client
+      .from("drivers")
+      .update(driverPatch)
+      .eq("id", driverId);
+    if (driverError) return { error: driverError.message };
+  }
+
+  const profilePatch: Record<string, unknown> = { updated_at: now };
+  if (input.fullName !== undefined) {
+    profilePatch.full_name = input.fullName;
+  }
+  if (input.phone !== undefined) {
+    profilePatch.phone = input.phone || null;
+  }
+
+  if (Object.keys(profilePatch).length > 1) {
+    const { error: profileError } = await client
+      .from("profiles")
+      .update(profilePatch)
+      .eq("id", profileId);
+    if (profileError) return { error: profileError.message };
+  }
+
+  const refreshed = await fetchDriverByProfileId(profileId);
+  if (!refreshed) {
+    return { error: "Driver updated but could not reload." };
+  }
+  return { driver: refreshed };
+}
+
+export async function deleteDriverInSupabase(
+  driverId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const client = await getAdminClient();
+  if (!client) {
+    return {
+      ok: false,
+      error:
+        "Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it in .env.local / Vercel.",
+    };
+  }
+
+  const existing = await client
+    .from("drivers")
+    .select("id, profile_id")
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (existing.error || !existing.data) {
+    return { ok: false, error: existing.error?.message || "Driver not found." };
+  }
+
+  const profileId = String(existing.data.profile_id);
+
+  const { data: activeDeliveries, error: activeError } = await client
+    .from("delivery_orders")
+    .select("id")
+    .eq("driver_id", driverId)
+    .not("status", "in", "(DELIVERED,CANCELLED)")
+    .limit(1);
+
+  if (activeError) {
+    return { ok: false, error: activeError.message };
+  }
+  if (activeDeliveries && activeDeliveries.length > 0) {
+    return {
+      ok: false,
+      error:
+        "This driver has active deliveries. Reassign or complete them before deleting.",
+    };
+  }
+
+  const { error: deliveryClearError } = await client
+    .from("delivery_orders")
+    .update({ driver_id: null, updated_at: new Date().toISOString() })
+    .eq("driver_id", driverId);
+  if (deliveryClearError) {
+    return { ok: false, error: deliveryClearError.message };
+  }
+
+  const { error: orderClearError } = await client
+    .from("orders")
+    .update({ driver_id: null, updated_at: new Date().toISOString() })
+    .eq("driver_id", profileId);
+  if (orderClearError) {
+    return { ok: false, error: orderClearError.message };
+  }
+
+  const { error: deleteAuthError } = await client.auth.admin.deleteUser(profileId);
+  if (deleteAuthError) {
+    return { ok: false, error: deleteAuthError.message };
+  }
+
+  return { ok: true };
+}

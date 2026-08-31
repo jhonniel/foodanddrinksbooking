@@ -91,6 +91,51 @@ export async function setDriverActiveApi(
   return data.driver;
 }
 
+export type UpdateDriverPayload = {
+  fullName?: string;
+  phone?: string | null;
+  vehicleType?: string;
+  vehicleNumber?: string | null;
+  licenseNumber?: string | null;
+};
+
+export async function updateDriverApi(
+  driverId: string,
+  payload: UpdateDriverPayload
+): Promise<Driver> {
+  const res = await fetch(`/api/drivers/${driverId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => null)) as {
+    driver?: Driver;
+    error?: string;
+  } | null;
+  if (!res.ok || !data?.driver) {
+    throw new Error(data?.error || "Could not update driver.");
+  }
+  const store = useDataStore.getState();
+  store.setDrivers(
+    store.drivers.map((d) => (d.id === driverId ? data.driver! : d))
+  );
+  return data.driver;
+}
+
+export async function deleteDriverApi(driverId: string): Promise<void> {
+  const res = await fetch(`/api/drivers/${driverId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (!res.ok) {
+    throw new Error(data?.error || "Could not delete driver.");
+  }
+  const store = useDataStore.getState();
+  store.setDrivers(store.drivers.filter((d) => d.id !== driverId));
+}
+
 /** Load / create the Supabase drivers row for the signed-in driver. */
 export async function syncMyDriverProfile(): Promise<Driver> {
   const res = await fetch("/api/drivers/me", {

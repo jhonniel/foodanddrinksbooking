@@ -178,3 +178,112 @@ export function verifyDeliveryPin(
   if (!delivery.delivery_pin) return true;
   return delivery.delivery_pin === pin.trim();
 }
+
+function startOfLocalDay(d = new Date()): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function startOfWeekMonday(d = new Date()): Date {
+  const x = startOfLocalDay(d);
+  const day = x.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  x.setDate(x.getDate() - diff);
+  return x;
+}
+
+export type DriverEarningsSummary = {
+  today: number;
+  weekly: number;
+  lifetime: number;
+  todayCount: number;
+  completedCount: number;
+  inProgressCount: number;
+  transactions: Array<{
+    id: string;
+    orderNumber: string;
+    amount: number;
+    at: string;
+  }>;
+};
+
+const EMPTY_EARNINGS: DriverEarningsSummary = {
+  today: 0,
+  weekly: 0,
+  lifetime: 0,
+  todayCount: 0,
+  completedCount: 0,
+  inProgressCount: 0,
+  transactions: [],
+};
+
+/** Deliveries assigned to a specific driver row (admin + wallet views). */
+export function filterDeliveriesForDriverRecord(
+  deliveries: DeliveryOrder[],
+  orders: Order[],
+  driver: Driver
+): DeliveryOrder[] {
+  const ids = collectDriverMatchIds(driver.profile_id, driver);
+  return deliveries.filter((d) => {
+    const order = orders.find((o) => o.id === d.order_id);
+    return isDeliveryOwnedByDriver(d, ids, order);
+  });
+}
+
+/**
+ * Driver wallet totals — only DELIVERED jobs count toward earnings.
+ */
+export function computeDriverEarningsSummary(input: {
+  deliveries: DeliveryOrder[];
+  orders: Order[];
+  driver: Driver;
+}): DriverEarningsSummary {
+  const mine = filterDeliveriesForDriverRecord(
+    input.deliveries,
+    input.orders,
+    input.driver
+  );
+
+  const completed = mine.filter((d) => d.status === "DELIVERED");
+  const inProgress = mine.filter(
+    (d) => !["DELIVERED", "CANCELLED"].includes(d.status)
+  );
+
+  const dayStart = startOfLocalDay().getTime();
+  const weekStart = startOfWeekMonday().getTime();
+
+  const feeOf = (d: DeliveryOrder) => Number(d.delivery_fee ?? 0);
+  const completedAt = (d: DeliveryOrder) =>
+    new Date(d.delivered_at ?? d.updated_at).getTime();
+
+  const todayCompleted = completed.filter((d) => completedAt(d) >= dayStart);
+  const weekCompleted = completed.filter((d) => completedAt(d) >= weekStart);
+
+  const transactions = [...completed]
+    .sort((a, b) => completedAt(b) - completedAt(a))
+    .map((d) => {
+      const order =
+        d.order ?? input.orders.find((o) => o.id === d.order_id) ?? null;
+      return {
+        id: d.id,
+        orderNumber: order?.order_number ?? "—",
+        amount: feeOf(d),
+        at: d.delivered_at ?? d.updated_at,
+      };
+    });
+
+  return {
+    today: todayCompleted.reduce((sum, d) => sum + feeOf(d), 0),
+    weekly: weekCompleted.reduce((sum, d) => sum + feeOf(d), 0),
+    lifetime: completed.reduce((sum, d) => sum + feeOf(d), 0),
+    todayCount: todayCompleted.length,
+    completedCount: completed.length,
+    inProgressCount: inProgress.length,
+    transactions,
+  };
+}
+
+export function emptyDriverEarningsSummary(): DriverEarningsSummary {
+  return { ...EMPTY_EARNINGS, transactions: [] };
+}
