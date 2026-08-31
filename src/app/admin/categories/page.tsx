@@ -18,6 +18,7 @@ import {
   removeCategoryRemote,
 } from "@/services/catalogService";
 import { Button } from "@/components/ui/button";
+import { CategoryLabel } from "@/components/shared/CategoryLabel";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -510,7 +511,7 @@ export default function AdminCategoriesPage() {
               )}
             </div>
             <div className="min-w-0 flex-1 basis-[40%]">
-              <h3 className="font-semibold text-navy">{category.name}</h3>
+              <CategoryLabel name={category.name} size="md" className="mb-1.5" />
               <p className="truncate text-sm text-muted-foreground">
                 {category.description}
               </p>

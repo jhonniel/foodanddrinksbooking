@@ -7,6 +7,7 @@ import { Heart, Plus, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils/format";
 import { isProductOrderable } from "@/lib/inventory/availability";
+import { CategoryLabel } from "@/components/shared/CategoryLabel";
 import {
   getRemainingPurchasable,
 } from "@/lib/cart/stockLimits";
@@ -36,6 +37,9 @@ export function ProductCard({
   const reduce = useReducedMotion();
   const inventory = useDataStore((s) => s.inventory);
   const cartItems = useCartStore((s) => s.items);
+  const categoryName = useDataStore(
+    (s) => s.categories.find((c) => c.id === product.category_id)?.name
+  );
   const orderable = isProductOrderable(product, inventory);
   const remaining = getRemainingPurchasable(product, inventory, cartItems);
 
@@ -109,6 +113,9 @@ export function ProductCard({
 
       <div className="p-3">
         <Link href={link}>
+          {categoryName ? (
+            <CategoryLabel name={categoryName} className="mb-1.5" />
+          ) : null}
           <h3 className="line-clamp-1 text-sm font-semibold text-navy">
             {product.name}
           </h3>

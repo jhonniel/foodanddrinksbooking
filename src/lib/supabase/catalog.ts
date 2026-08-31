@@ -24,6 +24,16 @@ function isUuid(id: string) {
   );
 }
 
+function addonCategoryIdMigrationError(message: string): string | null {
+  if (
+    message.includes("category_id") &&
+    (message.includes("column") || message.includes("schema cache"))
+  ) {
+    return "Database missing category_id on product_addons. Run supabase/catch-up-007-011.sql section 017 in the Supabase SQL Editor.";
+  }
+  return null;
+}
+
 /** Replace product recipes without wiping rows when the insert would fail. */
 async function syncProductRecipesInSupabase(
   client: NonNullable<Awaited<ReturnType<typeof createServerClient>>>,
@@ -96,18 +106,33 @@ async function syncProductAddonsInSupabase(
     sinkers.map((a) => a.id).filter((id) => isUuid(id))
   );
 
-  const { data: existing, error: listError } = await client
+  let omitCategoryId = false;
+  let existingRows: { id: string }[] | null = null;
+
+  const listWithCategory = await client
     .from("product_addons")
     .select("id")
     .eq("product_id", productId)
     .is("category_id", null)
     .eq("is_global", false);
 
-  if (listError) return { error: listError.message };
+  if (listWithCategory.error) {
+    const migration = addonCategoryIdMigrationError(listWithCategory.error.message);
+    if (!migration) return { error: listWithCategory.error.message };
 
-  const toDelete = (existing ?? []).filter(
-    (row) => !keepIds.has(String(row.id))
-  );
+    omitCategoryId = true;
+    const fallback = await client
+      .from("product_addons")
+      .select("id")
+      .eq("product_id", productId)
+      .eq("is_global", false);
+    if (fallback.error) return { error: migration };
+    existingRows = (fallback.data ?? []) as { id: string }[];
+  } else {
+    existingRows = (listWithCategory.data ?? []) as { id: string }[];
+  }
+
+  const toDelete = existingRows.filter((row) => !keepIds.has(String(row.id)));
 
   if (toDelete.length > 0) {
     const { error } = await client
@@ -125,7 +150,7 @@ async function syncProductAddonsInSupabase(
     const row = {
       id: isUuid(addon.id) ? addon.id : randomUUID(),
       product_id: productId,
-      category_id: null,
+      ...(omitCategoryId ? {} : { category_id: null }),
       name: addon.name.trim(),
       description: addon.description?.trim() || null,
       price: addon.price,
@@ -139,7 +164,9 @@ async function syncProductAddonsInSupabase(
     });
 
     if (error) {
-      return { error: error.message };
+      return {
+        error: addonCategoryIdMigrationError(error.message) ?? error.message,
+      };
     }
   }
 
@@ -200,17 +227,9 @@ async function syncCategoryAddonsInSupabase(
     });
 
     if (error) {
-      const msg = error.message;
-      if (
-        msg.includes("category_id") &&
-        (msg.includes("column") || msg.includes("schema cache"))
-      ) {
-        return {
-          error:
-            "Database missing category_id on product_addons. Run supabase/catch-up-007-011.sql section 017 in the Supabase SQL Editor.",
-        };
-      }
-      return { error: msg };
+      return {
+        error: addonCategoryIdMigrationError(error.message) ?? error.message,
+      };
     }
   }
 

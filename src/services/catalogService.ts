@@ -115,9 +115,8 @@ export async function syncProduct(product: Product): Promise<{
   }
 
   const addons = (product.addons ?? [])
-    .filter((a) => a.name.trim())
+    .filter((a) => !a.is_global && a.name.trim())
     .map((a, index) => ({
-      ...a,
       id:
         isUuid(a.id) && a.id
           ? a.id
@@ -125,10 +124,14 @@ export async function syncProduct(product: Product): Promise<{
             ? crypto.randomUUID()
             : a.id,
       product_id: product.id,
+      name: a.name.trim(),
+      description: a.description ?? null,
+      price: Number(a.price),
+      is_available: a.is_available,
       is_global: false,
       sort_order: a.sort_order ?? index,
     }))
-    .filter((a) => isUuid(a.id));
+    .filter((a) => isUuid(a.id) && Number.isFinite(a.price));
 
   const res = await fetch("/api/catalog/products", {
     method: "PUT",
@@ -136,20 +139,46 @@ export async function syncProduct(product: Product): Promise<{
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       product: {
-        ...product,
+        id: product.id,
+        category_id: product.category_id,
+        name: product.name,
+        slug: product.slug,
         description: product.description ?? null,
+        base_price: product.base_price,
         image_url: product.image_url ?? null,
         sku: product.sku ?? null,
+        is_available: product.is_available,
+        is_featured: product.is_featured,
+        is_best_seller: product.is_best_seller,
+        is_new: product.is_new,
+        preparation_time_minutes: product.preparation_time_minutes,
+        rating: product.rating,
+        review_count: product.review_count,
+        sort_order: product.sort_order,
+        created_at: product.created_at,
+        updated_at: product.updated_at,
         recipes,
         addons,
       },
     }),
   });
-  const json = (await res.json().catch(() => ({}))) as {
-    error?: string;
-    ok?: boolean;
-  };
-  if (!res.ok) return { ok: false, error: json.error ?? "Could not sync product." };
+  const raw = await res.text();
+  let json = {} as { error?: string; ok?: boolean };
+  try {
+    json = raw ? (JSON.parse(raw) as { error?: string; ok?: boolean }) : {};
+  } catch {
+    // Non-JSON body (e.g. HTML error page during dev recompile).
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      error:
+        json.error ??
+        (res.status === 404
+          ? "Product sync endpoint was unavailable. Refresh the page and try again."
+          : `Could not sync product (${res.status}).`),
+    };
+  }
   return { ok: true };
 }
 

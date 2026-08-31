@@ -18,10 +18,10 @@ const productSchema = z.object({
     category_id: z.string().uuid(),
     name: z.string().min(1),
     slug: z.string().min(1),
-    description: z.string().nullable(),
-    base_price: z.number(),
-    image_url: z.string().nullable(),
-    sku: z.string().nullable(),
+    description: z.string().nullish().transform((v) => v ?? null),
+    base_price: z.coerce.number(),
+    image_url: z.string().nullish().transform((v) => v ?? null),
+    sku: z.string().nullish().transform((v) => v ?? null),
     is_available: z.boolean(),
     is_featured: z.boolean(),
     is_best_seller: z.boolean(),
@@ -76,9 +76,10 @@ export async function PUT(request: Request) {
   const parsed = productSchema.safeParse(json);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
+    const path = issue?.path?.length ? issue.path.join(".") : "";
     return jsonError(
       issue?.message
-        ? `Invalid product: ${issue.message}`
+        ? `Invalid product${path ? ` (${path})` : ""}: ${issue.message}`
         : "Invalid product payload."
     );
   }

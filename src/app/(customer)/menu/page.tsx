@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { ProductCard } from "@/components/shared/ProductCard";
+import { CategoryLabel } from "@/components/shared/CategoryLabel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Input } from "@/components/ui/input";
 import {
@@ -254,7 +255,9 @@ function MenuContent() {
         <div className="space-y-8">
           {productsByCategory.map(({ category, products: categoryProducts }) => (
             <section key={category.id}>
-              <h2 className="mb-3 text-lg font-bold text-navy">{category.name}</h2>
+              <div className="mb-3">
+                <CategoryLabel name={category.name} size="md" />
+              </div>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
                 {categoryProducts.map((product) => (
                   <ProductCard

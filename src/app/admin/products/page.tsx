@@ -18,6 +18,7 @@ import {
 } from "@/lib/inventory/availability";
 import { formatCurrency, slugify } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
+import { CategoryLabel } from "@/components/shared/CategoryLabel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1015,10 +1016,11 @@ export default function AdminProductsPage() {
                 <div className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
+                      <CategoryLabel
+                        name={getCategoryName(product.category_id)}
+                        className="mb-1.5"
+                      />
                       <h3 className="font-semibold text-navy">{product.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {getCategoryName(product.category_id)}
-                      </p>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-green">
