@@ -72,6 +72,21 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/login") || pathname.startsWith("/register");
 
   const maintenanceOn = await resolveMaintenanceMode(request);
+  if (pathname === "/maintenance" && !maintenanceOn) {
+    const url = request.nextUrl.clone();
+    if (role && canAccessAdmin(role)) {
+      url.pathname = "/admin";
+    } else if (role && canAccessDriver(role)) {
+      url.pathname = "/driver";
+    } else if (role) {
+      url.pathname = "/home";
+    } else {
+      url.pathname = "/";
+    }
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   if (maintenanceOn && !isMaintenanceBypassPath(pathname)) {
     const staffOk =
       !!role && canAccessAdmin(role) && pathname.startsWith("/admin");

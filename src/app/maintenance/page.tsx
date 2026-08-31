@@ -1,10 +1,57 @@
 "use client";
 
+import { useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
+
+const ADMIN_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "MANAGER", "STAFF"]);
+
+function homePathForSession(role: string | undefined | null): string {
+  if (role && ADMIN_ROLES.has(role)) return "/admin";
+  if (role === "DRIVER") return "/driver";
+  if (role) return "/home";
+  return "/";
+}
 
 export default function MaintenancePage() {
   const reduce = useReducedMotion();
+  const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const leaveIfOpen = async () => {
+      try {
+        const res = await fetch("/api/settings", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as {
+          settings?: { maintenance_mode?: boolean };
+        } | null;
+        if (cancelled || json?.settings?.maintenance_mode) return;
+
+        const meRes = await fetch("/api/auth/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const me = (await meRes.json().catch(() => null)) as {
+          profile?: { role?: string };
+        } | null;
+
+        if (!cancelled) {
+          router.replace(homePathForSession(me?.profile?.role));
+        }
+      } catch {
+        /* ignore poll errors */
+      }
+    };
+
+    void leaveIfOpen();
+    const id = window.setInterval(() => void leaveIfOpen(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [router]);
 
   return (
     <div className="relative flex min-h-dvh flex-col bg-[#9fd6f0]">
