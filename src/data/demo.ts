@@ -371,12 +371,13 @@ export const INVENTORY: InventoryItem[] = [
   { id: "inv-straws", name: "Straws", sku: "INV-STRAWS", unit: "pcs", current_quantity: 3000, minimum_stock: 300, cost_per_unit: 0.3, supplier: "Packaging Pro", last_restocked_at: new Date().toISOString(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
 ];
 
-/** Customer earns 1 point for every ₱40 spent on items (delivery excluded). */
-export const PESOS_PER_POINT = 40;
+/** Customer earns 1 point per 1% of items spent (₱100 = 1 point; delivery excluded). */
+export const POINTS_EARN_PERCENT = 1;
+export const PESOS_PER_POINT = 100 / POINTS_EARN_PERCENT;
 
 export const LOYALTY_SETTINGS: LoyaltySettings = {
   id: "loyalty-1",
-  points_per_peso: 1 / PESOS_PER_POINT,
+  points_per_peso: POINTS_EARN_PERCENT / 100,
   peso_per_point: 0.1,
   min_redemption_points: 100,
   points_expiry_days: null,

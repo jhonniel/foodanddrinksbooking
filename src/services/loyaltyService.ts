@@ -1,15 +1,15 @@
 import { useDataStore } from "@/stores/data";
 import type { LoyaltySettings, Reward } from "@/types";
-import { LOYALTY_SETTINGS, PESOS_PER_POINT } from "@/data/demo";
+import { LOYALTY_SETTINGS, PESOS_PER_POINT, POINTS_EARN_PERCENT } from "@/data/demo";
 
 export async function getLoyaltySettings(): Promise<LoyaltySettings> {
   return LOYALTY_SETTINGS;
 }
 
-export { PESOS_PER_POINT };
+export { PESOS_PER_POINT, POINTS_EARN_PERCENT };
 
 export function formatPointsEarnRate(): string {
-  return `₱${PESOS_PER_POINT} spent = 1 point`;
+  return `${POINTS_EARN_PERCENT}% of items spent earns points (₱${PESOS_PER_POINT} = 1 pt)`;
 }
 
 export async function getRewards(): Promise<Reward[]> {

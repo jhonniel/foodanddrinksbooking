@@ -2,7 +2,7 @@
 
 -- Loyalty settings
 INSERT INTO loyalty_settings (points_per_peso, peso_per_point, min_redemption_points)
-VALUES (0.025, 0.1, 100);
+VALUES (0.01, 0.1, 100);
 
 -- Categories
 INSERT INTO categories (id, name, slug, description, image_url, sort_order) VALUES

@@ -90,10 +90,10 @@ UPDATE app_settings
 SET value = COALESCE(value, '{}'::jsonb) || '{"baseFee": 30, "baseKm": 1, "perKmFee": 10}'::jsonb
 WHERE key = 'delivery';
 
--- 016: loyalty earn rate (₱40 spent = 1 point)
+-- 016: loyalty earn rate (1% of items spent = points)
 UPDATE loyalty_settings
-SET points_per_peso = 0.025
-WHERE points_per_peso = 1.0 OR points_per_peso IS NULL;
+SET points_per_peso = 0.01
+WHERE points_per_peso IN (0.025, 1.0) OR points_per_peso IS NULL;
 
 -- 017: category-level sinkers on product_addons
 ALTER TABLE product_addons

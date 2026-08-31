@@ -6,7 +6,7 @@ import {
   STORE_LOCATION,
   LOYALTY_SETTINGS,
   DELIVERY_CONFIG,
-  PESOS_PER_POINT,
+  POINTS_EARN_PERCENT,
 } from "@/data/demo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,7 @@ export default function AdminSettingsPage() {
   const [storeName, setStoreName] = useState(STORE_LOCATION.name);
   const [storeAddress, setStoreAddress] = useState(STORE_LOCATION.address);
   const [storePhone, setStorePhone] = useState(STORE_LOCATION.phone);
-  const [pesosPerPoint, setPesosPerPoint] = useState(String(PESOS_PER_POINT));
+  const [earnPercent, setEarnPercent] = useState(String(POINTS_EARN_PERCENT));
   const [minRedemption, setMinRedemption] = useState(
     String(LOYALTY_SETTINGS.min_redemption_points)
   );
@@ -754,18 +754,19 @@ export default function AdminSettingsPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label htmlFor="pesos-per-point">₱ spent per 1 point</Label>
+                <Label htmlFor="earn-percent">Earn rate (% of items spent)</Label>
                 <Input
-                  id="pesos-per-point"
+                  id="earn-percent"
                   type="number"
-                  min={1}
-                  value={pesosPerPoint}
-                  onChange={(e) => setPesosPerPoint(e.target.value)}
+                  min={0.1}
+                  step={0.1}
+                  value={earnPercent}
+                  onChange={(e) => setEarnPercent(e.target.value)}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Example: {pesosPerPoint || PESOS_PER_POINT} → a ₱
-                  {Number(pesosPerPoint || PESOS_PER_POINT) * 2} order earns 2
-                  points (items only, delivery excluded).
+                  Example: {earnPercent || POINTS_EARN_PERCENT}% → a ₱100 order earns{" "}
+                  {Math.floor(100 * (Number(earnPercent || POINTS_EARN_PERCENT) / 100))}{" "}
+                  point (items only, delivery excluded).
                 </p>
               </div>
               <div>

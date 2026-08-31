@@ -8,6 +8,7 @@ import { Logo } from "@/components/shared/Logo";
 import { Reveal, Stagger, StaggerItem, fadeUp } from "@/components/motion";
 import { useDataStore } from "@/stores/data";
 import { formatCurrency } from "@/lib/utils/format";
+import { formatPointsEarnRate } from "@/services/loyaltyService";
 
 export default function LandingPage() {
   const reduce = useReducedMotion();
@@ -280,7 +281,7 @@ export default function LandingPage() {
             <Reveal>
               <h2 className="text-2xl font-bold sm:text-3xl">Earn Points. Get Rewards.</h2>
               <p className="mt-3 text-white/70">
-                Every ₱40 spent on items earns 1 point. Redeem for discounts and free drinks.
+                {formatPointsEarnRate()}. Redeem for discounts and free drinks.
               </p>
               <Link
                 href="/rewards"
